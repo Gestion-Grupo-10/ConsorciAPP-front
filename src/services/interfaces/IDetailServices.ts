@@ -16,7 +16,7 @@ export interface Gasto {
   descripcion: string;
   monto: number;
   fecha: string; // ISO Date YYYY-MM-DD
-  tipo: 'comun' | 'particular';
+  tipo: 'comun' | 'extraordinario' | 'particular';
   unidad_id?: string;
 }
 

@@ -1,4 +1,4 @@
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -28,7 +28,7 @@ interface NewPagoDialogProps {
 
 export default function NewPagoDialog({ consorcioId, unidades, open, onOpenChange, onSuccess }: NewPagoDialogProps) {
   const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
-  const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<FormValues>({
+  const { register, handleSubmit, reset, control, formState: { errors, isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(formSchema) as any,
     defaultValues: {
       unidad_id: "",
@@ -63,18 +63,31 @@ export default function NewPagoDialog({ consorcioId, unidades, open, onOpenChang
         <form onSubmit={handleSubmit(onSubmit as any)} className="space-y-4">
           <div className="space-y-2">
             <label className="text-sm font-medium">Unidad</label>
-            <Select onValueChange={(val) => setValue("unidad_id", val)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccione unidad" />
-                </SelectTrigger>
-                <SelectContent>
-                  {unidades.map(u => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.nro_piso} - {u.propietario}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <Controller
+              name="unidad_id"
+              control={control}
+              render={({ field }) => {
+                const selectedUnidad = unidades.find(u => u.id === field.value);
+                return (
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <SelectTrigger className="w-full h-10 px-3 flex items-center justify-between">
+                      <span className={!selectedUnidad ? "text-slate-500" : ""}>
+                        {selectedUnidad 
+                          ? `${selectedUnidad.nro_piso} - ${selectedUnidad.propietario}` 
+                          : "Seleccione unidad"}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {unidades.map(u => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.nro_piso} - {u.propietario}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                );
+              }}
+            />
             {errors.unidad_id && <p className="text-xs text-red-500">{errors.unidad_id.message}</p>}
           </div>
 

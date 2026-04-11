@@ -7,7 +7,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
 import { ArrowLeft, Users, Receipt, CreditCard, PieChart, Plus, Trash2, Calendar } from "lucide-react";
 import Header from "@/components/shared/Header";
 import NewUnidadDialog from "./components/NewUnidadDialog";
@@ -57,8 +56,13 @@ export default function ConsorcioDetailPage() {
   const totalSuperficie = useMemo(() => unidades.reduce((acc, u) => acc + u.superficie, 0), [unidades]);
   
   const commonExpenses = useMemo(() => gastos.filter(g => g.tipo === 'comun'), [gastos]);
+  const extraExpenses = useMemo(() => gastos.filter(g => g.tipo === 'extraordinario'), [gastos]);
+  
   const totalCommon = useMemo(() => commonExpenses.reduce((acc, g) => acc + g.monto, 0), [commonExpenses]);
+  const totalExtra = useMemo(() => extraExpenses.reduce((acc, g) => acc + g.monto, 0), [extraExpenses]);
   const totalParticular = useMemo(() => gastos.filter(g => g.tipo === 'particular').reduce((acc, g) => acc + g.monto, 0), [gastos]);
+  
+  const totalALiquidar = totalCommon + totalExtra + totalParticular;
   const totalRecaudado = useMemo(() => pagos.reduce((acc, p) => acc + p.monto, 0), [pagos]);
 
   // Settlement Calculation
@@ -66,11 +70,12 @@ export default function ConsorcioDetailPage() {
     return unidades.map(u => {
       const coef = totalSuperficie > 0 ? u.superficie / totalSuperficie : 0;
       const partCommon = totalCommon * coef;
+      const partExtra = totalExtra * coef;
       const partParticular = gastos
         .filter(g => g.tipo === 'particular' && g.unidad_id === u.id)
         .reduce((acc, g) => acc + g.monto, 0);
       
-      const totalALiquidar = partCommon + partParticular;
+      const subtotalUnidad = partCommon + partExtra + partParticular;
       const totalPagado = pagos
         .filter(p => p.unidad_id === u.id)
         .reduce((acc, p) => acc + p.monto, 0);
@@ -79,13 +84,14 @@ export default function ConsorcioDetailPage() {
         ...u,
         coef,
         partCommon,
+        partExtra,
         partParticular,
-        totalALiquidar,
+        totalUnidad: subtotalUnidad,
         totalPagado,
-        saldo: totalALiquidar - totalPagado
+        saldo: subtotalUnidad - totalPagado
       };
     });
-  }, [unidades, totalCommon, totalSuperficie, gastos, pagos]);
+  }, [unidades, totalCommon, totalExtra, totalSuperficie, gastos, pagos]);
 
   const handleDeleteGasto = async (gId: string) => {
     if (!confirm("¿Está seguro de eliminar este gasto?")) return;
@@ -124,7 +130,7 @@ export default function ConsorcioDetailPage() {
              </div>
              <div className="text-right border-l pl-6">
                 <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total a Liquidar</p>
-                <p className="text-lg font-bold text-blue-600">${(totalCommon + totalParticular).toLocaleString()}</p>
+                <p className="text-lg font-bold text-blue-600">${totalALiquidar.toLocaleString()}</p>
              </div>
           </div>
         </div>
@@ -156,7 +162,7 @@ export default function ConsorcioDetailPage() {
                     <Calendar className="h-4 w-4 text-orange-400" />
                 </CardHeader>
                 <CardContent>
-                    <div className="text-2xl font-bold text-orange-600">${(totalCommon + totalParticular - totalRecaudado).toLocaleString()}</div>
+                    <div className="text-2xl font-bold text-orange-600">${(totalALiquidar - totalRecaudado).toLocaleString()}</div>
                 </CardContent>
             </Card>
             <Card>
@@ -311,14 +317,18 @@ export default function ConsorcioDetailPage() {
                 <Button variant="outline" size="sm" onClick={() => window.print()}>Exportar PDF</Button>
              </div>
              
-             <div className="grid grid-cols-2 gap-4 mb-6">
+             <div className="grid grid-cols-3 gap-4 mb-6">
                 <div className="bg-slate-50 p-4 rounded-lg border">
-                  <p className="text-xs text-slate-500 uppercase font-bold">Gastos Comunes</p>
-                  <p className="text-xl font-bold">${totalCommon.toLocaleString()}</p>
+                  <p className="text-[10px] text-slate-500 uppercase font-bold">Gastos Comunes</p>
+                  <p className="text-lg font-bold">${totalCommon.toLocaleString()}</p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-lg border">
-                  <p className="text-xs text-slate-500 uppercase font-bold">Gastos Particulares</p>
-                  <p className="text-xl font-bold">${totalParticular.toLocaleString()}</p>
+                  <p className="text-[10px] text-slate-500 uppercase font-bold">Extraordinarios</p>
+                  <p className="text-lg font-bold">${totalExtra.toLocaleString()}</p>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-lg border">
+                  <p className="text-[10px] text-slate-500 uppercase font-bold">Particulares</p>
+                  <p className="text-lg font-bold">${totalParticular.toLocaleString()}</p>
                 </div>
              </div>
 
@@ -328,6 +338,7 @@ export default function ConsorcioDetailPage() {
                     <TableHead>Unidad</TableHead>
                     <TableHead className="text-right">Coef %</TableHead>
                     <TableHead className="text-right">G. Comunes</TableHead>
+                    <TableHead className="text-right">G. Extra.</TableHead>
                     <TableHead className="text-right">G. Part.</TableHead>
                     <TableHead className="text-right font-bold">Total</TableHead>
                     <TableHead className="text-right">Pagado</TableHead>
@@ -340,8 +351,9 @@ export default function ConsorcioDetailPage() {
                       <TableCell className="font-bold">{row.nro_piso}</TableCell>
                       <TableCell className="text-right">{(row.coef * 100).toFixed(2)}%</TableCell>
                       <TableCell className="text-right">${row.partCommon.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                      <TableCell className="text-right">${row.partExtra.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
                       <TableCell className="text-right">${row.partParticular.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                      <TableCell className="text-right font-bold">${row.totalALiquidar.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                      <TableCell className="text-right font-bold">${row.totalUnidad.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
                       <TableCell className="text-right text-green-600 font-medium">${row.totalPagado.toLocaleString()}</TableCell>
                       <TableCell className={`text-right font-bold ${row.saldo > 0 ? 'text-red-500' : 'text-slate-900'}`}>
                         ${row.saldo.toLocaleString(undefined, { minimumFractionDigits: 2 })}
