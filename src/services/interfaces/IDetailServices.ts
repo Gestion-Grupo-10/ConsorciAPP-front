@@ -15,17 +15,18 @@ export interface Gasto {
   consorcio_id: string;
   descripcion: string;
   monto: number;
-  fecha: string;
+  fecha: string; // ISO Date YYYY-MM-DD
   tipo: 'comun' | 'particular';
   unidad_id?: string;
 }
 
 export interface Pago {
   id: string;
+  consorcio_id: string;
   unidad_id: string;
   monto: number;
   fecha: string;
-  periodo: string;
+  periodo: string; // YYYY-MM
 }
 
 export interface ConsorcioDetail extends Consorcio {
@@ -42,4 +43,11 @@ export interface IUnidadService {
 export interface IGastoService {
   getByConsorcio(consorcioId: string, periodo?: string): Promise<Gasto[]>;
   create(data: Omit<Gasto, 'id'>): Promise<void>;
+  delete(id: string): Promise<void>;
+}
+
+export interface IPagoService {
+  getByConsorcio(consorcioId: string, periodo?: string): Promise<Pago[]>;
+  create(data: Omit<Pago, 'id'>): Promise<void>;
+  delete(id: string): Promise<void>;
 }
