@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { consorcioApi } from "@/services/api";
 import type { Consorcio } from "@/services/interfaces/IConsorcioService";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -12,6 +13,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const navigate = useNavigate();
 
   const fetchConsorcios = async () => {
     try {
@@ -21,7 +23,7 @@ export default function DashboardPage() {
       setError(null);
     } catch (err) {
       console.error("Error fetching consorcios:", err);
-      setError("Error al conectar con la base de datos local. Verifique que sql-wasm.wasm esté disponible.");
+      setError("Error al cargar los datos locales.");
     } finally {
       setLoading(false);
     }
@@ -84,7 +86,11 @@ export default function DashboardPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {consorcios.map((consorcio) => (
-              <Card key={consorcio.id} className="cursor-pointer hover:border-slate-400 transition-all">
+              <Card 
+                key={consorcio.id} 
+                className="cursor-pointer hover:border-slate-400 transition-all"
+                onClick={() => navigate(`/consorcio/${consorcio.id}`)}
+              >
                 <CardHeader>
                   <CardTitle>{consorcio.nombre}</CardTitle>
                   <CardDescription>{consorcio.direccion}</CardDescription>
