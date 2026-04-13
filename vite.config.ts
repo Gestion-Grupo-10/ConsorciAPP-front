@@ -3,7 +3,8 @@ import react from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "vite"
 
-const repoName = process.env.GITHUB_REPOSITORY?.split("/")[1]
+const repositoryParts = process.env.GITHUB_REPOSITORY?.split("/")
+const repoName = repositoryParts?.length === 2 ? repositoryParts[1] : undefined
 const base = process.env.GITHUB_ACTIONS === "true" && repoName ? `/${repoName}/` : "/"
 
 export default defineConfig({

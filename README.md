@@ -71,3 +71,8 @@ export default defineConfig([
   },
 ])
 ```
+
+## GitHub Pages deployment
+
+- The project includes `.github/workflows/deploy-pages.yml` to deploy on pushes to `main` (and manual runs).
+- The workflow uses `npm run build:pages` to generate the static `dist/` artifact for GitHub Pages.
