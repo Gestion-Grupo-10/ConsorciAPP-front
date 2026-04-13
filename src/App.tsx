@@ -5,8 +5,11 @@ import ConsorcioDetailPage from "./modules/consorcio/ConsorcioDetailPage";
 import { Suspense } from "react";
 
 function App() {
+  const basename =
+    import.meta.env.BASE_URL === "/" ? "/" : import.meta.env.BASE_URL.replace(/\/$/, "");
+
   return (
-    <Router>
+    <Router basename={basename}>
       <div className="min-h-screen bg-slate-50 font-sans antialiased">
         <Suspense fallback={<div className="p-8 text-center">Cargando aplicación...</div>}>
           <Routes>
