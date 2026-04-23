@@ -100,6 +100,43 @@ export default function ConsorcioDetailPage() {
     loadData();
   };
 
+  const [periodoBloqueado, setPeriodoBloqueado] = useState(false);
+  const diasGracia = 10;
+
+  const isPeriodoVencido = useMemo(() => {
+    const [y, m] = selectedPeriod.split("-").map(Number);
+    const venc = new Date(y, (m || 1), diasGracia); // mes siguiente, día gracia
+    return new Date() >= venc;
+  }, [selectedPeriod]);
+
+  useEffect(() => {
+    if (!id) return;
+    pagoApi
+      .isPeriodoBloqueado(id, selectedPeriod)
+      .then(setPeriodoBloqueado)
+      .catch(() => setPeriodoBloqueado(false));
+  }, [id, selectedPeriod]);
+
+  const handleAplicarVencimientos = async () => {
+    if (!id || !consorcio) return;
+    try {
+      const result = await pagoApi.applyVencimientos({
+        consorcioId: id,
+        periodo: selectedPeriod,
+        tasaMora: consorcio.tasa_mora ?? 0,
+        diasGracia,
+      });
+
+      toast.success(
+        `Vencimientos aplicados. Deuda: $${result.deudasTrasladadas.toFixed(2)} | Mora: $${result.moraGenerada.toFixed(2)}`
+      );
+      setPeriodoBloqueado(true);
+      await loadData();
+    } catch (e: any) {
+      toast.error(e?.message || "No se pudieron aplicar vencimientos");
+    }
+  };
+
   if (loading) return <div className="p-8 text-center">Cargando detalles...</div>;
   if (!consorcio) return <div className="p-8 text-center">Consorcio no encontrado</div>;
 
@@ -119,19 +156,30 @@ export default function ConsorcioDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-6">
-             <div className="flex flex-col items-end">
-                <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Periodo</p>
-                <input 
-                  type="month" 
-                  value={selectedPeriod} 
-                  onChange={(e) => setSelectedPeriod(e.target.value)}
-                  className="text-sm font-semibold bg-slate-100 border-none rounded px-2 py-1 focus:ring-0"
-                />
-             </div>
-             <div className="text-right border-l pl-6">
-                <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total a Liquidar</p>
-                <p className="text-lg font-bold text-blue-600">${totalALiquidar.toLocaleString()}</p>
-             </div>
+            <div className="flex flex-col items-end">
+              <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Periodo</p>
+              <input
+                type="month"
+                value={selectedPeriod}
+                onChange={(e) => setSelectedPeriod(e.target.value)}
+                className="text-sm font-semibold bg-slate-100 border-none rounded px-2 py-1 focus:ring-0"
+              />
+            </div>
+
+            <Button
+              variant="outline"
+              onClick={handleAplicarVencimientos}
+              disabled={!isPeriodoVencido || periodoBloqueado}
+            >
+              Aplicar vencimientos
+            </Button>
+
+            <div className="text-right border-l pl-6">
+              <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total a Liquidar</p>
+              <p className="text-lg font-bold text-blue-600">${totalALiquidar.toLocaleString()}</p>
+              {periodoBloqueado && <p className="text-xs text-amber-600">Período bloqueado</p>}
+              {!isPeriodoVencido && <p className="text-xs text-slate-500">Aún en días de gracia</p>}
+            </div>
           </div>
         </div>
       </div>
