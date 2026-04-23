@@ -1,8 +1,8 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
-import { useForm, Controller, useWatch } from "react-hook-form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useForm, Controller, useWatch, type SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { pagoApi } from "@/services/api";
@@ -10,26 +10,15 @@ import { toast } from "sonner";
 import type { Unidad } from "@/services/interfaces/IDetailServices";
 import { useEffect, useState } from "react";
 
-const formSchema = z
-  .object({
-    unidad_id: z.string().min(1, "Seleccione una unidad"),
-    monto: z.coerce.number().min(0.01, "El monto debe ser mayor a 0"),
-    fecha: z.string().min(1, "La fecha es requerida"),
-    periodo: z.string().min(7, "El periodo es requerido (YYYY-MM)"),
-  })
-  .superRefine((data, ctx) => {
-    const periodoDeFecha = data.fecha.slice(0, 7);
+const formSchema = z.object({
+  unidad_id: z.string().min(1, "La unidad es requerida"),
+  monto: z.coerce.number().positive("El monto debe ser mayor a 0"),
+  fecha: z.string().min(1, "La fecha es requerida"),
+  periodo: z.string().min(1, "El período es requerido"),
+});
 
-    if (data.periodo !== periodoDeFecha) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["periodo"],
-        message: "El período debe coincidir con el mes de la fecha de pago",
-      });
-    }
-  });
-
-type FormValues = z.infer<typeof formSchema>;
+type FormInput = z.input<typeof formSchema>;
+type FormValues = z.output<typeof formSchema>;
 
 interface NewPagoDialogProps {
   consorcioId: string;
@@ -43,17 +32,17 @@ export default function NewPagoDialog({ consorcioId, unidades, open, onOpenChang
   const currentMonth = new Date().toISOString().slice(0, 7);
 
   const {
+    control,
     register,
     handleSubmit,
-    reset,
-    control,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
+    reset,
+  } = useForm<FormInput, unknown, FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       unidad_id: "",
       monto: 0,
-      fecha: new Date().toISOString().split("T")[0],
+      fecha: new Date().toISOString().slice(0, 10),
       periodo: currentMonth,
     },
   });
@@ -75,7 +64,7 @@ export default function NewPagoDialog({ consorcioId, unidades, open, onOpenChang
     };
   }, [open, consorcioId, selectedPeriodo]);
 
-  const onSubmit = async (values: FormValues) => {
+  const onSubmit: SubmitHandler<FormValues> = async (values) => {
     const blocked = await pagoApi.isPeriodoBloqueado(consorcioId, values.periodo);
     if (blocked) {
       toast.error(`El período ${values.periodo} está bloqueado.`);
@@ -108,13 +97,10 @@ export default function NewPagoDialog({ consorcioId, unidades, open, onOpenChang
               name="unidad_id"
               control={control}
               render={({ field }) => {
-                const selectedUnidad = unidades.find((u) => u.id === field.value);
                 return (
                   <Select onValueChange={field.onChange} value={field.value}>
                     <SelectTrigger className="w-full h-10 px-3 flex items-center justify-between">
-                      <span className={!selectedUnidad ? "text-slate-500" : ""}>
-                        {selectedUnidad ? `${selectedUnidad.nro_piso} - ${selectedUnidad.propietario}` : "Seleccione unidad"}
-                      </span>
+                      <SelectValue placeholder="Seleccione unidad" />
                     </SelectTrigger>
                     <SelectContent>
                       {unidades.map((u) => (
