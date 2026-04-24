@@ -51,3 +51,15 @@ export interface IPagoService {
   create(data: Omit<Pago, 'id'>): Promise<void>;
   delete(id: string): Promise<void>;
 }
+
+export interface MesCerrado {
+  id: string;
+  consorcio_id: string;
+  periodo: string; // YYYY-MM
+}
+
+export interface IMesCerradoService {
+  isCerrado(consorcioId: string, periodo: string): Promise<boolean>;
+  cerrar(consorcioId: string, periodo: string): Promise<void>;
+  abrir(consorcioId: string, periodo: string): Promise<void>;
+}
