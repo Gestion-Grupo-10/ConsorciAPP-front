@@ -19,8 +19,8 @@ export default function ConsorcioDetailPage() {
   const navigate = useNavigate();
   const [consorcio, setConsorcio] = useState<Consorcio | null>(null);
   const [unidades, setUnidades] = useState<Unidad[]>([]);
-  const [gastos, setGastos] = useState<Gasto[]>([]);
-  const [pagos, setPagos] = useState<Pago[]>([]);
+  const [allGastos, setAllGastos] = useState<Gasto[]>([]);
+  const [allPagos, setAllPagos] = useState<Pago[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [isUnidadDialogOpen, setIsUnidadDialogOpen] = useState(false);
@@ -35,13 +35,13 @@ export default function ConsorcioDetailPage() {
       const [c, u, g, p] = await Promise.all([
         consorcioApi.getById(id),
         unidadApi.getByConsorcio(id),
-        gastoApi.getByConsorcio(id, selectedPeriod),
-        pagoApi.getByConsorcio(id, selectedPeriod)
+        gastoApi.getByConsorcio(id), // Fetch all
+        pagoApi.getByConsorcio(id)   // Fetch all
       ]);
       setConsorcio(c);
       setUnidades(u);
-      setGastos(g);
-      setPagos(p);
+      setAllGastos(g);
+      setAllPagos(p);
     } catch (error) {
       console.error("Error loading details:", error);
     } finally {
@@ -55,6 +55,14 @@ export default function ConsorcioDetailPage() {
 
   const totalSuperficie = useMemo(() => unidades.reduce((acc, u) => acc + u.superficie, 0), [unidades]);
   
+  const gastos = useMemo(() => 
+    allGastos.filter(g => (g.periodo || g.fecha.slice(0, 7)) === selectedPeriod), 
+  [allGastos, selectedPeriod]);
+
+  const pagos = useMemo(() => 
+    allPagos.filter(p => p.periodo === selectedPeriod), 
+  [allPagos, selectedPeriod]);
+
   const commonExpenses = useMemo(() => gastos.filter(g => g.tipo === 'comun'), [gastos]);
   const extraExpenses = useMemo(() => gastos.filter(g => g.tipo === 'extraordinario'), [gastos]);
   
@@ -71,11 +79,22 @@ export default function ConsorcioDetailPage() {
       const coef = totalSuperficie > 0 ? u.superficie / totalSuperficie : 0;
       const partCommon = totalCommon * coef;
       const partExtra = totalExtra * coef;
+      
+      // Gastos particulares del periodo (excluyendo deudas trasladadas para no duplicar)
       const partParticular = gastos
-        .filter(g => g.tipo === 'particular' && g.unidad_id === u.id)
+        .filter(g => g.tipo === 'particular' && g.unidad_id === u.id && !g.descripcion.startsWith("Deuda trasladada"))
         .reduce((acc, g) => acc + g.monto, 0);
       
-      const subtotalUnidad = partCommon + partExtra + partParticular;
+      // Saldo anterior histórico (todas las deudas previas menos todos los pagos previos)
+      const historicalGastos = allGastos.filter(g => {
+        const p = g.periodo || g.fecha.slice(0, 7);
+        return g.unidad_id === u.id && p < selectedPeriod && !g.descripcion.startsWith("Deuda trasladada");
+      });
+      const historicalPagos = allPagos.filter(p => p.unidad_id === u.id && p.periodo < selectedPeriod && p.tipo !== "transferencia_deuda");
+      
+      const saldoAnterior = historicalGastos.reduce((acc, g) => acc + g.monto, 0) - historicalPagos.reduce((acc, p) => acc + p.monto, 0);
+
+      const subtotalUnidad = partCommon + partExtra + partParticular + saldoAnterior;
       const totalPagado = pagos
         .filter(p => p.unidad_id === u.id)
         .reduce((acc, p) => acc + p.monto, 0);
@@ -86,12 +105,16 @@ export default function ConsorcioDetailPage() {
         partCommon,
         partExtra,
         partParticular,
+        saldoAnterior,
         totalUnidad: subtotalUnidad,
         totalPagado,
         saldo: subtotalUnidad - totalPagado
       };
     });
-  }, [unidades, totalCommon, totalExtra, totalSuperficie, gastos, pagos]);
+  }, [unidades, totalCommon, totalExtra, totalSuperficie, gastos, pagos, allGastos, allPagos, selectedPeriod]);
+
+  const totalSaldoAnterior = useMemo(() => settlementData.reduce((acc, row) => acc + row.saldoAnterior, 0), [settlementData]);
+  const totalALiquidarGlobal = totalALiquidar + totalSaldoAnterior;
 
   const handleDeleteGasto = async (gId: string) => {
     if (!confirm("¿Está seguro de eliminar este gasto?")) return;
@@ -206,11 +229,11 @@ export default function ConsorcioDetailPage() {
             </Card>
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase">Pendiente</CardTitle>
+                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase">Pendiente Global</CardTitle>
                     <Calendar className="h-4 w-4 text-orange-400" />
                 </CardHeader>
                 <CardContent>
-                    <div className="text-2xl font-bold text-orange-600">${(totalALiquidar - totalRecaudado).toLocaleString()}</div>
+                    <div className="text-2xl font-bold text-orange-600">${(totalALiquidarGlobal - totalRecaudado).toLocaleString()}</div>
                 </CardContent>
             </Card>
             <Card>
@@ -365,9 +388,13 @@ export default function ConsorcioDetailPage() {
                 <Button variant="outline" size="sm" onClick={() => window.print()}>Exportar PDF</Button>
              </div>
              
-             <div className="grid grid-cols-3 gap-4 mb-6">
+             <div className="grid grid-cols-4 gap-4 mb-6">
                 <div className="bg-slate-50 p-4 rounded-lg border">
-                  <p className="text-[10px] text-slate-500 uppercase font-bold">Gastos Comunes</p>
+                  <p className="text-[10px] text-slate-500 uppercase font-bold">Saldo Anterior</p>
+                  <p className="text-lg font-bold">${totalSaldoAnterior.toLocaleString()}</p>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-lg border">
+                  <p className="text-[10px] text-slate-500 uppercase font-bold">G. Comunes</p>
                   <p className="text-lg font-bold">${totalCommon.toLocaleString()}</p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-lg border">
@@ -385,6 +412,7 @@ export default function ConsorcioDetailPage() {
                   <TableRow>
                     <TableHead>Unidad</TableHead>
                     <TableHead className="text-right">Coef %</TableHead>
+                    <TableHead className="text-right">Saldo Ant.</TableHead>
                     <TableHead className="text-right">G. Comunes</TableHead>
                     <TableHead className="text-right">G. Extra.</TableHead>
                     <TableHead className="text-right">G. Part.</TableHead>
@@ -398,6 +426,7 @@ export default function ConsorcioDetailPage() {
                     <TableRow key={row.id}>
                       <TableCell className="font-bold">{row.nro_piso}</TableCell>
                       <TableCell className="text-right">{(row.coef * 100).toFixed(2)}%</TableCell>
+                      <TableCell className="text-right">${row.saldoAnterior.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
                       <TableCell className="text-right">${row.partCommon.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
                       <TableCell className="text-right">${row.partExtra.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
                       <TableCell className="text-right">${row.partParticular.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>

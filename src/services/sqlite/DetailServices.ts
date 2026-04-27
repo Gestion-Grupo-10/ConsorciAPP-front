@@ -149,24 +149,40 @@ export class LocalPagoService implements IPagoService {
     ]);
 
     const unidadesConsorcio = unidades.filter((u) => u.consorcio_id === consorcioId);
-    const gastosPeriodo = gastosAll.filter(
-      (g) => g.consorcio_id === consorcioId && (g.periodo || periodFromDate(g.fecha)) === periodo
-    );
-    const pagosPeriodo = pagosAll.filter((p) => p.consorcio_id === consorcioId && p.periodo === periodo);
+    
+    // Buscar el último periodo bloqueado para calcular el saldo desde entonces
+    const locks = await getLocks();
+    const locksConsorcio = locks[consorcioId] || {};
+    const bloqueadosAnteriores = Object.keys(locksConsorcio)
+      .filter((p) => p < periodo && locksConsorcio[p].bloqueado)
+      .sort();
+    const lastBlocked = bloqueadosAnteriores.length > 0 
+      ? bloqueadosAnteriores[bloqueadosAnteriores.length - 1] 
+      : "0000-00";
+
+    // Obtener gastos y pagos en el rango (lastBlocked, periodo]
+    const gastosRango = gastosAll.filter((g) => {
+      const p = g.periodo || periodFromDate(g.fecha);
+      return g.consorcio_id === consorcioId && p > lastBlocked && p <= periodo;
+    });
+    const pagosRango = pagosAll.filter((p) => {
+      const per = p.periodo || periodFromDate(p.fecha);
+      return p.consorcio_id === consorcioId && per > lastBlocked && per <= periodo;
+    });
 
     const totalSuperficie = unidadesConsorcio.reduce((acc, u) => acc + (u.superficie || 0), 0);
-    const totalComunExtra = gastosPeriodo
+    const totalComunExtra = gastosRango
       .filter((g) => g.tipo === "comun" || g.tipo === "extraordinario")
       .reduce((acc, g) => acc + g.monto, 0);
 
     const particularesPorUnidad = new Map<string, number>();
-    for (const g of gastosPeriodo.filter((x) => x.tipo === "particular" && x.unidad_id)) {
+    for (const g of gastosRango.filter((x) => x.tipo === "particular" && x.unidad_id)) {
       const prev = particularesPorUnidad.get(g.unidad_id!) || 0;
       particularesPorUnidad.set(g.unidad_id!, prev + g.monto);
     }
 
     const pagosPorUnidad = new Map<string, number>();
-    for (const p of pagosPeriodo) {
+    for (const p of pagosRango) {
       pagosPorUnidad.set(p.unidad_id, (pagosPorUnidad.get(p.unidad_id) || 0) + p.monto);
     }
 

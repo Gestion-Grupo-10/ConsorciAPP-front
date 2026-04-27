@@ -100,7 +100,12 @@ export default function NewPagoDialog({ consorcioId, unidades, open, onOpenChang
                 return (
                   <Select onValueChange={field.onChange} value={field.value}>
                     <SelectTrigger className="w-full h-10 px-3 flex items-center justify-between">
-                      <SelectValue placeholder="Seleccione unidad" />
+                      <SelectValue placeholder="Seleccione unidad">
+                        {field.value ? (() => {
+                          const u = unidades.find(x => x.id === field.value);
+                          return u ? `${u.nro_piso} - ${u.propietario}` : "Seleccione unidad";
+                        })() : "Seleccione unidad"}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {unidades.map((u) => (
