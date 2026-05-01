@@ -13,6 +13,7 @@ import NewUnidadDialog from "./components/NewUnidadDialog";
 import NewGastoDialog from "./components/NewGastoDialog";
 import NewPagoDialog from "./components/NewPagoDialog";
 import CerrarMesDialog from "./components/CerrarMesDialog";
+import ImportUnidadesFuncionales from "./components/ImportUnidadesFuncionales";
 import { toast } from "sonner";
 
 export default function ConsorcioDetailPage() {
@@ -226,9 +227,13 @@ export default function ConsorcioDetailPage() {
           <TabsContent value="unidades" className="bg-white border rounded-xl p-6 shadow-sm min-h-[400px]">
             <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-semibold">Listado de Unidades</h3>
-                <Button size="sm" onClick={() => setIsUnidadDialogOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" /> Nueva Unidad
-                </Button>
+                <div className="flex gap-2">
+                  {id && <ImportUnidadesFuncionales consorcioId={id} onSuccess={loadData} />}
+                  
+                  <Button size="sm" onClick={() => setIsUnidadDialogOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4" /> Nueva Unidad
+                  </Button>
+                </div>
             </div>
             {unidades.length === 0 ? (
                 <div className="text-center py-20 text-slate-400 border rounded-lg border-dashed">No hay unidades cargadas</div>
