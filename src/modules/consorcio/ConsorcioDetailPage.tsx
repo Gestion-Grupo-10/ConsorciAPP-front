@@ -20,8 +20,8 @@ export default function ConsorcioDetailPage() {
   const navigate = useNavigate();
   const [consorcio, setConsorcio] = useState<Consorcio | null>(null);
   const [unidades, setUnidades] = useState<Unidad[]>([]);
-  const [gastos, setGastos] = useState<Gasto[]>([]);
-  const [pagos, setPagos] = useState<Pago[]>([]);
+  const [allGastos, setAllGastos] = useState<Gasto[]>([]);
+  const [allPagos, setAllPagos] = useState<Pago[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [isUnidadDialogOpen, setIsUnidadDialogOpen] = useState(false);
@@ -38,14 +38,14 @@ export default function ConsorcioDetailPage() {
       const [c, u, g, p, cerrado] = await Promise.all([
         consorcioApi.getById(id),
         unidadApi.getByConsorcio(id),
-        gastoApi.getByConsorcio(id, selectedPeriod),
-        pagoApi.getByConsorcio(id, selectedPeriod),
-        mesCerradoApi.isCerrado(id, selectedPeriod),
+        gastoApi.getByConsorcio(id), // Fetch all
+        pagoApi.getByConsorcio(id),   // Fetch all
+        mesCerradoApi.isCerrado(id, selectedPeriod)
       ]);
       setConsorcio(c);
       setUnidades(u);
-      setGastos(g);
-      setPagos(p);
+      setAllGastos(g);
+      setAllPagos(p);
       setIsMesCerrado(cerrado);
     } catch (error) {
       console.error("Error loading details:", error);
@@ -60,6 +60,14 @@ export default function ConsorcioDetailPage() {
 
   const totalSuperficie = useMemo(() => unidades.reduce((acc, u) => acc + u.superficie, 0), [unidades]);
   
+  const gastos = useMemo(() => 
+    allGastos.filter(g => (g.periodo || g.fecha.slice(0, 7)) === selectedPeriod), 
+  [allGastos, selectedPeriod]);
+
+  const pagos = useMemo(() => 
+    allPagos.filter(p => p.periodo === selectedPeriod), 
+  [allPagos, selectedPeriod]);
+
   const commonExpenses = useMemo(() => gastos.filter(g => g.tipo === 'comun'), [gastos]);
   const extraExpenses = useMemo(() => gastos.filter(g => g.tipo === 'extraordinario'), [gastos]);
   
@@ -79,14 +87,25 @@ export default function ConsorcioDetailPage() {
       const coef = totalSuperficie > 0 ? u.superficie / totalSuperficie : 0;
       const partCommon = totalCommon * coef;
       const partExtra = totalExtra * coef;
-      const partComision = totalComision * coef;
+      
+      // Gastos particulares del periodo (excluyendo deudas trasladadas para no duplicar)
       const partParticular = gastos
-        .filter(g => g.tipo === 'particular' && g.unidad_id === u.id)
+        .filter(g => g.tipo === 'particular' && g.unidad_id === u.id && !g.descripcion.startsWith("Deuda trasladada"))
         .reduce((acc, g) => acc + g.monto, 0);
       
-      const subtotalUnidad = partCommon + partExtra + partParticular + partComision;
+      // Saldo anterior histórico (todas las deudas previas menos todos los pagos previos)
+      const historicalGastos = allGastos.filter(g => {
+        const p = g.periodo || g.fecha.slice(0, 7);
+        return g.unidad_id === u.id && p < selectedPeriod && !g.descripcion.startsWith("Deuda trasladada");
+      });
+      const historicalPagos = allPagos.filter(p => p.unidad_id === u.id && p.periodo < selectedPeriod && p.tipo !== "transferencia_deuda");
+      
+      const saldoAnterior = historicalGastos.reduce((acc, g) => acc + g.monto, 0) - historicalPagos.reduce((acc, p) => acc + p.monto, 0);
+
+      const partComision = totalComision * coef;
+      const subtotalUnidad = partCommon + partExtra + partParticular + saldoAnterior + partComision;
       const totalPagado = pagos
-        .filter(p => p.unidad_id === u.id)
+        .filter(p => p.id !== undefined && p.unidad_id === u.id)
         .reduce((acc, p) => acc + p.monto, 0);
       
       return {
@@ -96,21 +115,58 @@ export default function ConsorcioDetailPage() {
         partExtra,
         partComision,
         partParticular,
+        saldoAnterior,
         totalUnidad: subtotalUnidad,
         totalPagado,
         saldo: subtotalUnidad - totalPagado
       };
     });
-  }, [unidades, totalCommon, totalExtra, totalComision, totalSuperficie, gastos, pagos]);
+  }, [unidades, totalCommon, totalExtra, totalSuperficie, gastos, pagos, allGastos, allPagos, selectedPeriod]);
+
+  const totalSaldoAnterior = useMemo(() => settlementData.reduce((acc, row) => acc + row.saldoAnterior, 0), [settlementData]);
+  const totalALiquidarGlobal = totalALiquidar + totalSaldoAnterior;
 
   const handleDeleteGasto = async (gId: string) => {
     if (!confirm("¿Está seguro de eliminar este gasto?")) return;
+    await gastoApi.delete(gId);
+    toast.success("Gasto eliminado");
+    loadData();
+  };
+
+  const [periodoBloqueado, setPeriodoBloqueado] = useState(false);
+  const diasGracia = 10;
+
+  const isPeriodoVencido = useMemo(() => {
+    const [y, m] = selectedPeriod.split("-").map(Number);
+    const venc = new Date(y, (m || 1), diasGracia); // mes siguiente, día gracia
+    return new Date() >= venc;
+  }, [selectedPeriod]);
+
+  useEffect(() => {
+    if (!id) return;
+    pagoApi
+      .isPeriodoBloqueado(id, selectedPeriod)
+      .then(setPeriodoBloqueado)
+      .catch(() => setPeriodoBloqueado(false));
+  }, [id, selectedPeriod]);
+
+  const handleAplicarVencimientos = async () => {
+    if (!id || !consorcio) return;
     try {
-      await gastoApi.delete(gId);
-      toast.success("Gasto eliminado");
-      loadData();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "No se pudo eliminar el gasto.");
+      const result = await pagoApi.applyVencimientos({
+        consorcioId: id,
+        periodo: selectedPeriod,
+        tasaMora: consorcio.tasa_mora ?? 0,
+        diasGracia,
+      });
+
+      toast.success(
+        `Vencimientos aplicados. Deuda: $${result.deudasTrasladadas.toFixed(2)} | Mora: $${result.moraGenerada.toFixed(2)}`
+      );
+      setPeriodoBloqueado(true);
+      await loadData();
+    } catch (e: any) {
+      toast.error(e?.message || "No se pudieron aplicar vencimientos");
     }
   };
 
@@ -133,36 +189,30 @@ export default function ConsorcioDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-6">
-             <div className="flex flex-col items-end">
-                <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Periodo</p>
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="month" 
-                    value={selectedPeriod} 
-                    onChange={(e) => setSelectedPeriod(e.target.value)}
-                    className="text-sm font-semibold bg-slate-100 border-none rounded px-2 py-1 focus:ring-0"
-                  />
-                  {isMesCerrado && (
-                    <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-600 px-2 py-1 rounded">
-                      <LockIcon className="size-3" /> Cerrado
-                    </span>
-                  )}
-                </div>
-             </div>
-             <div className="flex flex-col items-end gap-1">
-               <Button
-                 size="sm"
-                 variant={isMesCerrado ? "outline" : "destructive"}
-                 onClick={() => setIsCerrarMesDialogOpen(true)}
-               >
-                 <LockIcon className="mr-1 size-3" />
-                 {isMesCerrado ? "Reabrir Mes" : "Cerrar Mes"}
-               </Button>
-             </div>
-             <div className="text-right border-l pl-6">
-                <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total a Liquidar</p>
-                <p className="text-lg font-bold text-blue-600">${totalALiquidar.toLocaleString()}</p>
-             </div>
+            <div className="flex flex-col items-end">
+              <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Periodo</p>
+              <input
+                type="month"
+                value={selectedPeriod}
+                onChange={(e) => setSelectedPeriod(e.target.value)}
+                className="text-sm font-semibold bg-slate-100 border-none rounded px-2 py-1 focus:ring-0"
+              />
+            </div>
+
+            <Button
+              variant="outline"
+              onClick={handleAplicarVencimientos}
+              disabled={!isPeriodoVencido || periodoBloqueado}
+            >
+              Aplicar vencimientos
+            </Button>
+
+            <div className="text-right border-l pl-6">
+              <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total a Liquidar</p>
+              <p className="text-lg font-bold text-blue-600">${totalALiquidar.toLocaleString()}</p>
+              {periodoBloqueado && <p className="text-xs text-amber-600">Período bloqueado</p>}
+              {!isPeriodoVencido && <p className="text-xs text-slate-500">Aún en días de gracia</p>}
+            </div>
           </div>
         </div>
       </div>
@@ -189,11 +239,11 @@ export default function ConsorcioDetailPage() {
             </Card>
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase">Pendiente</CardTitle>
+                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase">Pendiente Global</CardTitle>
                     <Calendar className="h-4 w-4 text-orange-400" />
                 </CardHeader>
                 <CardContent>
-                    <div className="text-2xl font-bold text-orange-600">${(totalALiquidar - totalRecaudado).toLocaleString()}</div>
+                    <div className="text-2xl font-bold text-orange-600">${(totalALiquidarGlobal - totalRecaudado).toLocaleString()}</div>
                 </CardContent>
             </Card>
             <Card>
@@ -356,9 +406,13 @@ export default function ConsorcioDetailPage() {
                 <Button variant="outline" size="sm" onClick={() => window.print()}>Exportar PDF</Button>
              </div>
              
-             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+             <div className="grid grid-cols-4 gap-4 mb-6">
                 <div className="bg-slate-50 p-4 rounded-lg border">
-                  <p className="text-[10px] text-slate-500 uppercase font-bold">Gastos Comunes</p>
+                  <p className="text-[10px] text-slate-500 uppercase font-bold">Saldo Anterior</p>
+                  <p className="text-lg font-bold">${totalSaldoAnterior.toLocaleString()}</p>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-lg border">
+                  <p className="text-[10px] text-slate-500 uppercase font-bold">G. Comunes</p>
                   <p className="text-lg font-bold">${totalCommon.toLocaleString()}</p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-lg border">
@@ -375,40 +429,38 @@ export default function ConsorcioDetailPage() {
                 </div>
              </div>
 
-             <div className="overflow-x-auto">
-               <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Unidad</TableHead>
-                      <TableHead className="text-right">Coef %</TableHead>
-                      <TableHead className="text-right">G. Comunes</TableHead>
-                      <TableHead className="text-right">G. Extra.</TableHead>
-                      <TableHead className="text-right">G. Part.</TableHead>
-                      <TableHead className="text-right">Comisión</TableHead>
-                      <TableHead className="text-right font-bold">Total</TableHead>
-                      <TableHead className="text-right">Pagado</TableHead>
-                      <TableHead className="text-right">Saldo</TableHead>
+             <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Unidad</TableHead>
+                    <TableHead className="text-right">Coef %</TableHead>
+                    <TableHead className="text-right">Saldo Ant.</TableHead>
+                    <TableHead className="text-right">G. Comunes</TableHead>
+                    <TableHead className="text-right">G. Extra.</TableHead>
+                    <TableHead className="text-right">G. Part.</TableHead>
+                    <TableHead className="text-right font-bold">Total</TableHead>
+                    <TableHead className="text-right">Pagado</TableHead>
+                    <TableHead className="text-right">Saldo</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {settlementData.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-bold">{row.nro_piso}</TableCell>
+                      <TableCell className="text-right">{(row.coef * 100).toFixed(2)}%</TableCell>
+                      <TableCell className="text-right">${row.saldoAnterior.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                      <TableCell className="text-right">${row.partCommon.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                      <TableCell className="text-right">${row.partExtra.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                      <TableCell className="text-right">${row.partParticular.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                      <TableCell className="text-right font-bold">${row.totalUnidad.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                      <TableCell className="text-right text-green-600 font-medium">${row.totalPagado.toLocaleString()}</TableCell>
+                      <TableCell className={`text-right font-bold ${row.saldo > 0 ? 'text-red-500' : 'text-slate-900'}`}>
+                        ${row.saldo.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {settlementData.map((row) => (
-                      <TableRow key={row.id}>
-                        <TableCell className="font-bold whitespace-nowrap">{row.nro_piso}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">{(row.coef * 100).toFixed(2)}%</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">${row.partCommon.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">${row.partExtra.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">${row.partParticular.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">${row.partComision.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-right font-bold whitespace-nowrap">${row.totalUnidad.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-right text-green-600 font-medium whitespace-nowrap">${row.totalPagado.toLocaleString()}</TableCell>
-                        <TableCell className={`text-right font-bold whitespace-nowrap ${row.saldo > 0 ? 'text-red-500' : 'text-slate-900'}`}>
-                          ${row.saldo.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-               </Table>
-             </div>
+                  ))}
+                </TableBody>
+             </Table>
           </TabsContent>
         </Tabs>
 
