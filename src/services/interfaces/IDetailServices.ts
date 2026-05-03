@@ -72,3 +72,15 @@ export interface IPagoService {
   isPeriodoBloqueado(consorcioId: string, periodo: string): Promise<boolean>;
   applyVencimientos(input: ApplyVencimientosInput): Promise<ApplyVencimientosResult>;
 }
+
+export interface MesCerrado {
+  id: string;
+  consorcio_id: string;
+  periodo: string; // YYYY-MM
+}
+
+export interface IMesCerradoService {
+  isCerrado(consorcioId: string, periodo: string): Promise<boolean>;
+  cerrar(consorcioId: string, periodo: string): Promise<void>;
+  abrir(consorcioId: string, periodo: string): Promise<void>;
+}

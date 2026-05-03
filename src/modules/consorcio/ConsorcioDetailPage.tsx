@@ -1,17 +1,18 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { consorcioApi, unidadApi, gastoApi, pagoApi } from "@/services/api";
+import { consorcioApi, unidadApi, gastoApi, pagoApi, mesCerradoApi } from "@/services/api";
 import type { Consorcio } from "@/services/interfaces/IConsorcioService";
 import type { Unidad, Gasto, Pago } from "@/services/interfaces/IDetailServices";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Users, Receipt, CreditCard, PieChart, Plus, Trash2, Calendar } from "lucide-react";
+import { ArrowLeft, Users, Receipt, CreditCard, PieChart, Plus, Trash2, Calendar, LockIcon } from "lucide-react";
 import Header from "@/components/shared/Header";
 import NewUnidadDialog from "./components/NewUnidadDialog";
 import NewGastoDialog from "./components/NewGastoDialog";
 import NewPagoDialog from "./components/NewPagoDialog";
+import CerrarMesDialog from "./components/CerrarMesDialog";
 import { toast } from "sonner";
 
 export default function ConsorcioDetailPage() {
@@ -26,22 +27,26 @@ export default function ConsorcioDetailPage() {
   const [isUnidadDialogOpen, setIsUnidadDialogOpen] = useState(false);
   const [isGastoDialogOpen, setIsGastoDialogOpen] = useState(false);
   const [isPagoDialogOpen, setIsPagoDialogOpen] = useState(false);
+  const [isCerrarMesDialogOpen, setIsCerrarMesDialogOpen] = useState(false);
   
   const [selectedPeriod, setSelectedPeriod] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+  const [isMesCerrado, setIsMesCerrado] = useState(false);
 
   const loadData = async () => {
     if (!id) return;
     try {
-      const [c, u, g, p] = await Promise.all([
+      const [c, u, g, p, cerrado] = await Promise.all([
         consorcioApi.getById(id),
         unidadApi.getByConsorcio(id),
         gastoApi.getByConsorcio(id), // Fetch all
-        pagoApi.getByConsorcio(id)   // Fetch all
+        pagoApi.getByConsorcio(id),   // Fetch all
+        mesCerradoApi.isCerrado(id, selectedPeriod)
       ]);
       setConsorcio(c);
       setUnidades(u);
       setAllGastos(g);
       setAllPagos(p);
+      setIsMesCerrado(cerrado);
     } catch (error) {
       console.error("Error loading details:", error);
     } finally {
@@ -70,7 +75,10 @@ export default function ConsorcioDetailPage() {
   const totalExtra = useMemo(() => extraExpenses.reduce((acc, g) => acc + g.monto, 0), [extraExpenses]);
   const totalParticular = useMemo(() => gastos.filter(g => g.tipo === 'particular').reduce((acc, g) => acc + g.monto, 0), [gastos]);
   
-  const totalALiquidar = totalCommon + totalExtra + totalParticular;
+  const baseGastos = totalCommon + totalExtra + totalParticular;
+  const totalComision = baseGastos * ((consorcio?.comision_admin || 0) / 100);
+  const totalALiquidar = baseGastos + totalComision;
+
   const totalRecaudado = useMemo(() => pagos.reduce((acc, p) => acc + p.monto, 0), [pagos]);
 
   // Settlement Calculation
@@ -94,9 +102,10 @@ export default function ConsorcioDetailPage() {
       
       const saldoAnterior = historicalGastos.reduce((acc, g) => acc + g.monto, 0) - historicalPagos.reduce((acc, p) => acc + p.monto, 0);
 
-      const subtotalUnidad = partCommon + partExtra + partParticular + saldoAnterior;
+      const partComision = totalComision * coef;
+      const subtotalUnidad = partCommon + partExtra + partParticular + saldoAnterior + partComision;
       const totalPagado = pagos
-        .filter(p => p.unidad_id === u.id)
+        .filter(p => p.id !== undefined && p.unidad_id === u.id)
         .reduce((acc, p) => acc + p.monto, 0);
       
       return {
@@ -104,6 +113,7 @@ export default function ConsorcioDetailPage() {
         coef,
         partCommon,
         partExtra,
+        partComision,
         partParticular,
         saldoAnterior,
         totalUnidad: subtotalUnidad,
@@ -303,10 +313,16 @@ export default function ConsorcioDetailPage() {
           <TabsContent value="gastos" className="bg-white border rounded-xl p-6 shadow-sm min-h-[400px]">
             <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-semibold">Gastos de {selectedPeriod}</h3>
-                <Button size="sm" onClick={() => setIsGastoDialogOpen(true)}>
+                <Button size="sm" onClick={() => setIsGastoDialogOpen(true)} disabled={isMesCerrado}>
                   <Plus className="mr-2 h-4 w-4" /> Cargar Gasto
                 </Button>
             </div>
+            {isMesCerrado && (
+              <div className="flex items-center gap-2 mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                <LockIcon className="size-4 shrink-0" />
+                Este mes está cerrado. No se pueden agregar ni eliminar gastos.
+              </div>
+            )}
             {gastos.length === 0 ? (
                 <div className="text-center py-20 text-slate-400 border rounded-lg border-dashed">No hay gastos en este periodo</div>
             ) : (
@@ -317,7 +333,7 @@ export default function ConsorcioDetailPage() {
                       <TableHead>Descripción</TableHead>
                       <TableHead>Tipo</TableHead>
                       <TableHead className="text-right">Monto</TableHead>
-                      <TableHead className="text-right">Acción</TableHead>
+                      {!isMesCerrado && <TableHead className="text-right">Acción</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -334,11 +350,13 @@ export default function ConsorcioDetailPage() {
                         </TableCell>
                         <TableCell className="capitalize">{g.tipo}</TableCell>
                         <TableCell className="text-right font-bold">${g.monto.toLocaleString()}</TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="icon" onClick={() => handleDeleteGasto(g.id)}>
-                            <Trash2 className="h-4 w-4 text-red-400" />
-                          </Button>
-                        </TableCell>
+                        {!isMesCerrado && (
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="icon" onClick={() => handleDeleteGasto(g.id)}>
+                              <Trash2 className="h-4 w-4 text-red-400" />
+                            </Button>
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -405,6 +423,10 @@ export default function ConsorcioDetailPage() {
                   <p className="text-[10px] text-slate-500 uppercase font-bold">Particulares</p>
                   <p className="text-lg font-bold">${totalParticular.toLocaleString()}</p>
                 </div>
+                <div className="bg-slate-50 p-4 rounded-lg border bg-blue-50/50">
+                  <p className="text-[10px] text-blue-600 uppercase font-bold">Comisión ({consorcio?.comision_admin || 0}%)</p>
+                  <p className="text-lg font-bold text-blue-700">${totalComision.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
              </div>
 
              <Table>
@@ -447,6 +469,14 @@ export default function ConsorcioDetailPage() {
             <NewUnidadDialog consorcioId={id} open={isUnidadDialogOpen} onOpenChange={setIsUnidadDialogOpen} onSuccess={loadData} />
             <NewGastoDialog consorcioId={id} unidades={unidades} open={isGastoDialogOpen} onOpenChange={setIsGastoDialogOpen} onSuccess={loadData} />
             <NewPagoDialog consorcioId={id} unidades={unidades} open={isPagoDialogOpen} onOpenChange={setIsPagoDialogOpen} onSuccess={loadData} />
+            <CerrarMesDialog
+              consorcioId={id}
+              periodo={selectedPeriod}
+              isCerrado={isMesCerrado}
+              open={isCerrarMesDialogOpen}
+              onOpenChange={setIsCerrarMesDialogOpen}
+              onSuccess={loadData}
+            />
           </>
         )}
       </main>
