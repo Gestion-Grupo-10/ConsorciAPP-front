@@ -7,13 +7,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Users, Receipt, CreditCard, PieChart, Plus, Trash2, Calendar, LockIcon } from "lucide-react";
+import { ArrowLeft, Users, Receipt, CreditCard, PieChart, Plus, Trash2, Calendar, LockIcon, Download } from "lucide-react";
 import Header from "@/components/shared/Header";
 import NewUnidadDialog from "./components/NewUnidadDialog";
 import NewGastoDialog from "./components/NewGastoDialog";
 import NewPagoDialog from "./components/NewPagoDialog";
 import CerrarMesDialog from "./components/CerrarMesDialog";
 import { toast } from "sonner";
+import { utils, writeFile } from 'xlsx';
 
 export default function ConsorcioDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -46,13 +47,17 @@ export default function ConsorcioDetailPage() {
       setUnidades(u);
       setGastos(g);
       setPagos(p);
-      setIsMesCerrado(cerrado);
+      setIsMesCallado(cerrado);
     } catch (error) {
       console.error("Error loading details:", error);
     } finally {
       setLoading(false);
     }
   };
+
+  const setIsMesCallado = (val: boolean) => {
+    setIsMesCerrado(val);
+  }
 
   useEffect(() => {
     loadData();
@@ -114,17 +119,45 @@ export default function ConsorcioDetailPage() {
     }
   };
 
+  const handleExportExcel = () => {
+    if (!consorcio) return;
+    
+    const data = settlementData.map(row => ({
+      'Unidad': row.nro_piso,
+      'Coeficiente %': (row.coef * 100).toFixed(2),
+      'Gastos Comunes': row.partCommon,
+      'Gastos Extraordinarios': row.partExtra,
+      'Gastos Particulares': row.partParticular,
+      'Comisión': row.partComision,
+      'Total Unidad': row.totalUnidad,
+      'Total Pagado': row.totalPagado,
+      'Saldo': row.saldo
+    }));
+
+    const worksheet = utils.json_to_sheet(data);
+    const workbook = utils.book_new();
+    utils.book_append_sheet(workbook, worksheet, "Liquidación");
+
+    // Fix column widths
+    const maxWidths = Object.keys(data[0] || {}).map(key => ({ wch: key.length + 5 }));
+    worksheet['!cols'] = maxWidths;
+
+    writeFile(workbook, `Liquidacion_${consorcio.nombre.replace(/\s+/g, '_')}_${selectedPeriod}.xlsx`);
+  };
+
   if (loading) return <div className="p-8 text-center">Cargando detalles...</div>;
   if (!consorcio) return <div className="p-8 text-center">Consorcio no encontrado</div>;
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-50">
-      <Header />
+      <div className="print:hidden">
+        <Header />
+      </div>
       
-      <div className="sticky top-0 z-10 bg-white border-b shadow-sm">
+      <div className="sticky top-0 z-10 bg-white border-b shadow-sm print:relative print:shadow-none print:border-none">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
+            <Button variant="ghost" size="icon" onClick={() => navigate("/")} className="print:hidden">
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>
@@ -140,16 +173,19 @@ export default function ConsorcioDetailPage() {
                     type="month" 
                     value={selectedPeriod} 
                     onChange={(e) => setSelectedPeriod(e.target.value)}
-                    className="text-sm font-semibold bg-slate-100 border-none rounded px-2 py-1 focus:ring-0"
+                    className="text-sm font-semibold bg-slate-100 border-none rounded px-2 py-1 focus:ring-0 print:hidden"
                   />
+                  <span className="hidden print:block text-sm font-semibold">
+                    {selectedPeriod}
+                  </span>
                   {isMesCerrado && (
-                    <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-600 px-2 py-1 rounded">
+                    <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-600 px-2 py-1 rounded print:border print:border-red-200">
                       <LockIcon className="size-3" /> Cerrado
                     </span>
                   )}
                 </div>
              </div>
-             <div className="flex flex-col items-end gap-1">
+             <div className="flex flex-col items-end gap-1 print:hidden">
                <Button
                  size="sm"
                  variant={isMesCerrado ? "outline" : "destructive"}
@@ -168,7 +204,7 @@ export default function ConsorcioDetailPage() {
       </div>
 
       <main className="flex-1 container mx-auto py-6 px-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 print:hidden">
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-[10px] font-bold text-slate-500 uppercase">Unidades</CardTitle>
@@ -208,7 +244,7 @@ export default function ConsorcioDetailPage() {
         </div>
 
         <Tabs defaultValue="unidades" className="space-y-4">
-          <TabsList className="bg-white border p-1 h-auto w-full md:w-auto justify-start overflow-x-auto">
+          <TabsList className="bg-white border p-1 h-auto w-full md:w-auto justify-start overflow-x-auto print:hidden">
             <TabsTrigger value="unidades" className="py-2 px-4">
               <Users className="mr-2 h-4 w-4" /> Unidades
             </TabsTrigger>
@@ -223,7 +259,7 @@ export default function ConsorcioDetailPage() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="unidades" className="bg-white border rounded-xl p-6 shadow-sm min-h-[400px]">
+          <TabsContent value="unidades" className="bg-white border rounded-xl p-6 shadow-sm min-h-[400px] print:hidden">
             <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-semibold">Listado de Unidades</h3>
                 <Button size="sm" onClick={() => setIsUnidadDialogOpen(true)}>
@@ -260,7 +296,7 @@ export default function ConsorcioDetailPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="gastos" className="bg-white border rounded-xl p-6 shadow-sm min-h-[400px]">
+          <TabsContent value="gastos" className="bg-white border rounded-xl p-6 shadow-sm min-h-[400px] print:hidden">
             <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-semibold">Gastos de {selectedPeriod}</h3>
                 <Button size="sm" onClick={() => setIsGastoDialogOpen(true)} disabled={isMesCerrado}>
@@ -314,7 +350,7 @@ export default function ConsorcioDetailPage() {
             )}
           </TabsContent>
           
-          <TabsContent value="pagos" className="bg-white border rounded-xl p-6 shadow-sm min-h-[400px]">
+          <TabsContent value="pagos" className="bg-white border rounded-xl p-6 shadow-sm min-h-[400px] print:hidden">
              <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-semibold">Pagos de {selectedPeriod}</h3>
                 <Button size="sm" onClick={() => setIsPagoDialogOpen(true)}>
@@ -350,13 +386,20 @@ export default function ConsorcioDetailPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="reportes" className="bg-white border rounded-xl p-6 shadow-sm min-h-[400px]">
-             <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-semibold">Liquidación Mensual - {selectedPeriod}</h3>
-                <Button variant="outline" size="sm" onClick={() => window.print()}>Exportar PDF</Button>
+          <TabsContent value="reportes" className="bg-white border rounded-xl p-6 shadow-sm min-h-[400px] print:border-none print:shadow-none print:p-0">
+             <div className="flex justify-between items-center mb-6 print:mb-4">
+                <h3 className="text-lg font-semibold print:text-xl">Liquidación Mensual - {selectedPeriod}</h3>
+                <div className="flex gap-2 print:hidden">
+                  <Button variant="outline" size="sm" onClick={handleExportExcel}>
+                    <Download className="mr-2 h-4 w-4" /> Exportar Excel
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => window.print()}>
+                    Exportar PDF
+                  </Button>
+                </div>
              </div>
              
-             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 print:hidden">
                 <div className="bg-slate-50 p-4 rounded-lg border">
                   <p className="text-[10px] text-slate-500 uppercase font-bold">Gastos Comunes</p>
                   <p className="text-lg font-bold">${totalCommon.toLocaleString()}</p>
@@ -375,33 +418,33 @@ export default function ConsorcioDetailPage() {
                 </div>
              </div>
 
-             <div className="overflow-x-auto">
-               <Table>
+             <div className="overflow-x-auto print:overflow-visible">
+               <Table className="print:text-[10px] print:w-full print:border">
                   <TableHeader>
-                    <TableRow>
-                      <TableHead>Unidad</TableHead>
-                      <TableHead className="text-right">Coef %</TableHead>
-                      <TableHead className="text-right">G. Comunes</TableHead>
-                      <TableHead className="text-right">G. Extra.</TableHead>
-                      <TableHead className="text-right">G. Part.</TableHead>
-                      <TableHead className="text-right">Comisión</TableHead>
-                      <TableHead className="text-right font-bold">Total</TableHead>
-                      <TableHead className="text-right">Pagado</TableHead>
-                      <TableHead className="text-right">Saldo</TableHead>
+                    <TableRow className="print:bg-slate-100">
+                      <TableHead className="print:px-1 print:border-b print:text-black">Unidad</TableHead>
+                      <TableHead className="text-right print:px-1 print:border-b print:text-black">Coef %</TableHead>
+                      <TableHead className="text-right print:px-1 print:border-b print:text-black">G. Comunes</TableHead>
+                      <TableHead className="text-right print:px-1 print:border-b print:text-black">G. Extra.</TableHead>
+                      <TableHead className="text-right print:px-1 print:border-b print:text-black">G. Part.</TableHead>
+                      <TableHead className="text-right print:px-1 print:border-b print:text-black">Comisión</TableHead>
+                      <TableHead className="text-right font-bold print:px-1 print:border-b print:text-black">Total</TableHead>
+                      <TableHead className="text-right print:px-1 print:border-b print:text-black">Pagado</TableHead>
+                      <TableHead className="text-right print:px-1 print:border-b print:text-black">Saldo</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {settlementData.map((row) => (
-                      <TableRow key={row.id}>
-                        <TableCell className="font-bold whitespace-nowrap">{row.nro_piso}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">{(row.coef * 100).toFixed(2)}%</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">${row.partCommon.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">${row.partExtra.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">${row.partParticular.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">${row.partComision.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-right font-bold whitespace-nowrap">${row.totalUnidad.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-right text-green-600 font-medium whitespace-nowrap">${row.totalPagado.toLocaleString()}</TableCell>
-                        <TableCell className={`text-right font-bold whitespace-nowrap ${row.saldo > 0 ? 'text-red-500' : 'text-slate-900'}`}>
+                      <TableRow key={row.id} className="print:border-b">
+                        <TableCell className="font-bold whitespace-nowrap print:px-1">{row.nro_piso}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap print:px-1">{(row.coef * 100).toFixed(2)}%</TableCell>
+                        <TableCell className="text-right whitespace-nowrap print:px-1">${row.partCommon.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap print:px-1">${row.partExtra.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap print:px-1">${row.partParticular.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap print:px-1">${row.partComision.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell className="text-right font-bold whitespace-nowrap print:px-1">${row.totalUnidad.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                        <TableCell className="text-right text-green-600 font-medium whitespace-nowrap print:px-1">${row.totalPagado.toLocaleString()}</TableCell>
+                        <TableCell className={`text-right font-bold whitespace-nowrap print:px-1 ${row.saldo > 0 ? 'text-red-500' : 'text-slate-900'}`}>
                           ${row.saldo.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </TableCell>
                       </TableRow>
