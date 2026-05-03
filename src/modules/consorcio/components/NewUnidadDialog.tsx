@@ -40,6 +40,7 @@ export default function NewUnidadDialog({ consorcioId, open, onOpenChange, onSuc
     try {
       await unidadApi.create({
         ...values,
+        telefono: values.telefono ?? "",
         consorcio_id: consorcioId,
       });
       toast.success("Unidad creada correctamente");
