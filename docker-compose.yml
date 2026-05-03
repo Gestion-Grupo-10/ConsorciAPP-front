@@ -6,3 +6,5 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
+    environment:
+      - CHOKINDAR_USEPOLLING=true
