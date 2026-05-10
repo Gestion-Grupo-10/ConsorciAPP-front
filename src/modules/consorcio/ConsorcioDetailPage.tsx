@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Users, Receipt, CreditCard, PieChart, Plus, Trash2, Calendar, LockIcon } from "lucide-react";
+import { ArrowLeft, Users, Receipt, CreditCard, PieChart, Plus, Trash2, Calendar, LockIcon, CheckCircle2 } from "lucide-react";
 import Header from "@/components/shared/Header";
 import NewUnidadDialog from "./components/NewUnidadDialog";
 import NewGastoDialog from "./components/NewGastoDialog";
@@ -15,6 +15,10 @@ import NewPagoDialog from "./components/NewPagoDialog";
 import CerrarMesDialog from "./components/CerrarMesDialog";
 import ImportUnidadesFuncionales from "./components/ImportUnidadesFuncionales";
 import { toast } from "sonner";
+
+const fmt = (n: number) =>
+  n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 export default function ConsorcioDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -32,22 +36,25 @@ export default function ConsorcioDetailPage() {
   
   const [selectedPeriod, setSelectedPeriod] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [isMesCerrado, setIsMesCerrado] = useState(false);
+  const [lastBlockedPeriod, setLastBlockedPeriod] = useState("0000-00");
 
   const loadData = async () => {
     if (!id) return;
     try {
-      const [c, u, g, p, cerrado] = await Promise.all([
+      const [c, u, g, p, cerrado, lastBlocked] = await Promise.all([
         consorcioApi.getById(id),
         unidadApi.getByConsorcio(id),
-        gastoApi.getByConsorcio(id), // Fetch all
-        pagoApi.getByConsorcio(id),   // Fetch all
-        mesCerradoApi.isCerrado(id, selectedPeriod)
+        gastoApi.getByConsorcio(id),
+        pagoApi.getByConsorcio(id),
+        mesCerradoApi.isCerrado(id, selectedPeriod),
+        pagoApi.getLastPeriodoBloqueado(id, selectedPeriod),
       ]);
       setConsorcio(c);
       setUnidades(u);
       setAllGastos(g);
       setAllPagos(p);
       setIsMesCerrado(cerrado);
+      setLastBlockedPeriod(lastBlocked);
     } catch (error) {
       console.error("Error loading details:", error);
     } finally {
@@ -86,28 +93,35 @@ export default function ConsorcioDetailPage() {
   const settlementData = useMemo(() => {
     return unidades.map(u => {
       const coef = totalSuperficie > 0 ? u.superficie / totalSuperficie : 0;
-      const partCommon = totalCommon * coef;
-      const partExtra = totalExtra * coef;
+      const partCommon = round2(totalCommon * coef);
+      const partExtra = round2(totalExtra * coef);
       
-      // Gastos particulares del periodo (excluyendo deudas trasladadas para no duplicar)
-      const partParticular = gastos
-        .filter(g => g.tipo === 'particular' && g.unidad_id === u.id && !g.descripcion.startsWith("Deuda trasladada"))
-        .reduce((acc, g) => acc + g.monto, 0);
+      // Gastos particulares del periodo actual (incluyendo deudas trasladadas)
+      const partParticular = round2(gastos
+        .filter(g => g.tipo === 'particular' && g.unidad_id === u.id)
+        .reduce((acc, g) => acc + g.monto, 0));
       
-      // Saldo anterior histórico (todas las deudas previas menos todos los pagos previos)
+      // Saldo anterior: solo considera el rango abierto posterior al ultimo vencimiento.
+      // Los periodos anteriores al ultimo vencido ya tienen sus deudas capturadas
+      // como "Deuda trasladada" en el periodo siguiente, evitando doble conteo.
       const historicalGastos = allGastos.filter(g => {
         const p = g.periodo || g.fecha.slice(0, 7);
-        return g.unidad_id === u.id && p < selectedPeriod && !g.descripcion.startsWith("Deuda trasladada");
+        return g.unidad_id === u.id && p > lastBlockedPeriod && p < selectedPeriod;
       });
-      const historicalPagos = allPagos.filter(p => p.unidad_id === u.id && p.periodo < selectedPeriod && p.tipo !== "transferencia_deuda");
+      const historicalPagos = allPagos.filter(p =>
+        p.unidad_id === u.id &&
+        p.periodo > lastBlockedPeriod &&
+        p.periodo < selectedPeriod &&
+        p.tipo !== "transferencia_deuda"
+      );
       
-      const saldoAnterior = historicalGastos.reduce((acc, g) => acc + g.monto, 0) - historicalPagos.reduce((acc, p) => acc + p.monto, 0);
+      const saldoAnterior = round2(historicalGastos.reduce((acc, g) => acc + g.monto, 0) - historicalPagos.reduce((acc, p) => acc + p.monto, 0));
 
-      const partComision = totalComision * coef;
-      const subtotalUnidad = partCommon + partExtra + partParticular + saldoAnterior + partComision;
-      const totalPagado = pagos
+      const partComision = round2(totalComision * coef);
+      const subtotalUnidad = round2(partCommon + partExtra + partParticular + saldoAnterior + partComision);
+      const totalPagado = round2(pagos
         .filter(p => p.id !== undefined && p.unidad_id === u.id)
-        .reduce((acc, p) => acc + p.monto, 0);
+        .reduce((acc, p) => acc + p.monto, 0));
       
       return {
         ...u,
@@ -119,10 +133,10 @@ export default function ConsorcioDetailPage() {
         saldoAnterior,
         totalUnidad: subtotalUnidad,
         totalPagado,
-        saldo: subtotalUnidad - totalPagado
+        saldo: round2(subtotalUnidad - totalPagado)
       };
     });
-  }, [unidades, totalCommon, totalExtra, totalSuperficie, gastos, pagos, allGastos, allPagos, selectedPeriod]);
+  }, [unidades, totalCommon, totalExtra, totalSuperficie, gastos, pagos, allGastos, allPagos, selectedPeriod, lastBlockedPeriod]);
 
   const totalSaldoAnterior = useMemo(() => settlementData.reduce((acc, row) => acc + row.saldoAnterior, 0), [settlementData]);
   const totalALiquidarGlobal = totalALiquidar + totalSaldoAnterior;
@@ -135,13 +149,6 @@ export default function ConsorcioDetailPage() {
   };
 
   const [periodoBloqueado, setPeriodoBloqueado] = useState(false);
-  const diasGracia = 10;
-
-  const isPeriodoVencido = useMemo(() => {
-    const [y, m] = selectedPeriod.split("-").map(Number);
-    const venc = new Date(y, (m || 1), diasGracia); // mes siguiente, día gracia
-    return new Date() >= venc;
-  }, [selectedPeriod]);
 
   useEffect(() => {
     if (!id) return;
@@ -158,7 +165,6 @@ export default function ConsorcioDetailPage() {
         consorcioId: id,
         periodo: selectedPeriod,
         tasaMora: consorcio.tasa_mora ?? 0,
-        diasGracia,
       });
 
       toast.success(
@@ -200,19 +206,26 @@ export default function ConsorcioDetailPage() {
               />
             </div>
 
-            <Button
-              variant="outline"
-              onClick={handleAplicarVencimientos}
-              disabled={!isPeriodoVencido || periodoBloqueado}
-            >
-              Aplicar vencimientos
-            </Button>
+            {/* Boton contextual segun estado del periodo */}
+            {periodoBloqueado ? (
+              <Button variant="outline" disabled className="text-slate-400 cursor-not-allowed">
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Período vencido
+              </Button>
+            ) : isMesCerrado ? (
+              <Button variant="outline" onClick={handleAplicarVencimientos}>
+                Aplicar vencimientos
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={() => setIsCerrarMesDialogOpen(true)}>
+                <LockIcon className="mr-2 h-4 w-4" />
+                Cerrar mes
+              </Button>
+            )}
 
             <div className="text-right border-l pl-6">
               <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total a Liquidar</p>
-              <p className="text-lg font-bold text-blue-600">${totalALiquidar.toLocaleString()}</p>
-              {periodoBloqueado && <p className="text-xs text-amber-600">Período bloqueado</p>}
-              {!isPeriodoVencido && <p className="text-xs text-slate-500">Aún en días de gracia</p>}
+              <p className="text-lg font-bold text-blue-600">${fmt(totalALiquidar)}</p>
             </div>
           </div>
         </div>
@@ -235,7 +248,7 @@ export default function ConsorcioDetailPage() {
                     <CreditCard className="h-4 w-4 text-green-400" />
                 </CardHeader>
                 <CardContent>
-                    <div className="text-2xl font-bold text-green-600">${totalRecaudado.toLocaleString()}</div>
+                    <div className="text-2xl font-bold text-green-600">${fmt(totalRecaudado)}</div>
                 </CardContent>
             </Card>
             <Card>
@@ -244,7 +257,7 @@ export default function ConsorcioDetailPage() {
                     <Calendar className="h-4 w-4 text-orange-400" />
                 </CardHeader>
                 <CardContent>
-                    <div className="text-2xl font-bold text-orange-600">${(totalALiquidarGlobal - totalRecaudado).toLocaleString()}</div>
+                    <div className="text-2xl font-bold text-orange-600">${fmt((totalALiquidarGlobal - totalRecaudado))}</div>
                 </CardContent>
             </Card>
             <Card>
@@ -354,7 +367,7 @@ export default function ConsorcioDetailPage() {
                           )}
                         </TableCell>
                         <TableCell className="capitalize">{g.tipo}</TableCell>
-                        <TableCell className="text-right font-bold">${g.monto.toLocaleString()}</TableCell>
+                        <TableCell className="text-right font-bold">${fmt(g.monto)}</TableCell>
                         {!isMesCerrado && (
                           <TableCell className="text-right">
                             <Button variant="ghost" size="icon" onClick={() => handleDeleteGasto(g.id)}>
@@ -396,7 +409,7 @@ export default function ConsorcioDetailPage() {
                         <TableCell>{p.fecha}</TableCell>
                         <TableCell className="font-bold">{u?.nro_piso}</TableCell>
                         <TableCell>{u?.propietario}</TableCell>
-                        <TableCell className="text-right text-green-600 font-bold">${p.monto.toLocaleString()}</TableCell>
+                        <TableCell className="text-right text-green-600 font-bold">${fmt(p.monto)}</TableCell>
                       </TableRow>
                     );
                   })}
@@ -414,23 +427,23 @@ export default function ConsorcioDetailPage() {
              <div className="grid grid-cols-4 gap-4 mb-6">
                 <div className="bg-slate-50 p-4 rounded-lg border">
                   <p className="text-[10px] text-slate-500 uppercase font-bold">Saldo Anterior</p>
-                  <p className="text-lg font-bold">${totalSaldoAnterior.toLocaleString()}</p>
+                  <p className="text-lg font-bold">${fmt(totalSaldoAnterior)}</p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-lg border">
                   <p className="text-[10px] text-slate-500 uppercase font-bold">G. Comunes</p>
-                  <p className="text-lg font-bold">${totalCommon.toLocaleString()}</p>
+                  <p className="text-lg font-bold">${fmt(totalCommon)}</p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-lg border">
                   <p className="text-[10px] text-slate-500 uppercase font-bold">Extraordinarios</p>
-                  <p className="text-lg font-bold">${totalExtra.toLocaleString()}</p>
+                  <p className="text-lg font-bold">${fmt(totalExtra)}</p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-lg border">
                   <p className="text-[10px] text-slate-500 uppercase font-bold">Particulares</p>
-                  <p className="text-lg font-bold">${totalParticular.toLocaleString()}</p>
+                  <p className="text-lg font-bold">${fmt(totalParticular)}</p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-lg border bg-blue-50/50">
                   <p className="text-[10px] text-blue-600 uppercase font-bold">Comisión ({consorcio?.comision_admin || 0}%)</p>
-                  <p className="text-lg font-bold text-blue-700">${totalComision.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  <p className="text-lg font-bold text-blue-700">${fmt(totalComision)}</p>
                 </div>
              </div>
 
@@ -453,14 +466,14 @@ export default function ConsorcioDetailPage() {
                     <TableRow key={row.id}>
                       <TableCell className="font-bold">{row.nro_piso}</TableCell>
                       <TableCell className="text-right">{(row.coef * 100).toFixed(2)}%</TableCell>
-                      <TableCell className="text-right">${row.saldoAnterior.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                      <TableCell className="text-right">${row.partCommon.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                      <TableCell className="text-right">${row.partExtra.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                      <TableCell className="text-right">${row.partParticular.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                      <TableCell className="text-right font-bold">${row.totalUnidad.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                      <TableCell className="text-right text-green-600 font-medium">${row.totalPagado.toLocaleString()}</TableCell>
+                      <TableCell className="text-right">${fmt(row.saldoAnterior)}</TableCell>
+                      <TableCell className="text-right">${fmt(row.partCommon)}</TableCell>
+                      <TableCell className="text-right">${fmt(row.partExtra)}</TableCell>
+                      <TableCell className="text-right">${fmt(row.partParticular)}</TableCell>
+                      <TableCell className="text-right font-bold">${fmt(row.totalUnidad)}</TableCell>
+                      <TableCell className="text-right text-green-600 font-medium">${fmt(row.totalPagado)}</TableCell>
                       <TableCell className={`text-right font-bold ${row.saldo > 0 ? 'text-red-500' : 'text-slate-900'}`}>
-                        ${row.saldo.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        ${fmt(row.saldo)}
                       </TableCell>
                     </TableRow>
                   ))}

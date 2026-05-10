@@ -37,7 +37,6 @@ export interface ApplyVencimientosInput {
   consorcioId: string;
   periodo: string; // YYYY-MM
   tasaMora?: number; // porcentaje (ej. 10 = 10%)
-  diasGracia?: number; // default 10
 }
 
 export interface ApplyVencimientosResult {
@@ -70,6 +69,7 @@ export interface IPagoService {
   delete(id: string): Promise<void>;
 
   isPeriodoBloqueado(consorcioId: string, periodo: string): Promise<boolean>;
+  getLastPeriodoBloqueado(consorcioId: string, beforePeriodo: string): Promise<string>;
   applyVencimientos(input: ApplyVencimientosInput): Promise<ApplyVencimientosResult>;
 }
 
