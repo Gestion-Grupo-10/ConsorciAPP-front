@@ -1,5 +1,6 @@
 import localforage from "localforage";
 import type { Consorcio, IConsorcioService, NewConsorcio } from "../interfaces/IConsorcioService";
+import { generateUUID } from "@/lib/utils";
 
 const STORAGE_KEY = "consorcios_data";
 
@@ -25,7 +26,7 @@ export class LocalConsorcioService implements IConsorcioService {
     const store = await this.getStore();
     const newConsorcio: Consorcio = {
       ...data,
-      id: crypto.randomUUID(),
+      id: generateUUID(),
     };
     await this.saveStore([...store, newConsorcio]);
   }

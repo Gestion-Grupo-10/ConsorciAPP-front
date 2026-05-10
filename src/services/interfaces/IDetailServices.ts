@@ -37,7 +37,6 @@ export interface ApplyVencimientosInput {
   consorcioId: string;
   periodo: string; // YYYY-MM
   tasaMora?: number; // porcentaje (ej. 10 = 10%)
-  diasGracia?: number; // default 10
 }
 
 export interface ApplyVencimientosResult {

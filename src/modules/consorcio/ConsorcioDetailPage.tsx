@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Users, Receipt, CreditCard, PieChart, Plus, Trash2, Calendar, LockIcon } from "lucide-react";
+import { ArrowLeft, Users, Receipt, CreditCard, PieChart, Plus, Trash2, Calendar, LockIcon, CheckCircle2 } from "lucide-react";
 import Header from "@/components/shared/Header";
 import NewUnidadDialog from "./components/NewUnidadDialog";
 import NewGastoDialog from "./components/NewGastoDialog";
@@ -135,13 +135,6 @@ export default function ConsorcioDetailPage() {
   };
 
   const [periodoBloqueado, setPeriodoBloqueado] = useState(false);
-  const diasGracia = 10;
-
-  const isPeriodoVencido = useMemo(() => {
-    const [y, m] = selectedPeriod.split("-").map(Number);
-    const venc = new Date(y, (m || 1), diasGracia); // mes siguiente, día gracia
-    return new Date() >= venc;
-  }, [selectedPeriod]);
 
   useEffect(() => {
     if (!id) return;
@@ -158,7 +151,6 @@ export default function ConsorcioDetailPage() {
         consorcioId: id,
         periodo: selectedPeriod,
         tasaMora: consorcio.tasa_mora ?? 0,
-        diasGracia,
       });
 
       toast.success(
@@ -200,19 +192,26 @@ export default function ConsorcioDetailPage() {
               />
             </div>
 
-            <Button
-              variant="outline"
-              onClick={handleAplicarVencimientos}
-              disabled={!isPeriodoVencido || periodoBloqueado}
-            >
-              Aplicar vencimientos
-            </Button>
+            {/* Boton contextual segun estado del periodo */}
+            {periodoBloqueado ? (
+              <Button variant="outline" disabled className="text-slate-400 cursor-not-allowed">
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Período vencido
+              </Button>
+            ) : isMesCerrado ? (
+              <Button variant="outline" onClick={handleAplicarVencimientos}>
+                Aplicar vencimientos
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={() => setIsCerrarMesDialogOpen(true)}>
+                <LockIcon className="mr-2 h-4 w-4" />
+                Cerrar mes
+              </Button>
+            )}
 
             <div className="text-right border-l pl-6">
               <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total a Liquidar</p>
               <p className="text-lg font-bold text-blue-600">${totalALiquidar.toLocaleString()}</p>
-              {periodoBloqueado && <p className="text-xs text-amber-600">Período bloqueado</p>}
-              {!isPeriodoVencido && <p className="text-xs text-slate-500">Aún en días de gracia</p>}
             </div>
           </div>
         </div>

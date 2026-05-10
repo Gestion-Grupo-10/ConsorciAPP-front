@@ -1,4 +1,5 @@
 import localforage from "localforage";
+import { generateUUID } from "@/lib/utils";
 import type {
   ApplyVencimientosInput,
   ApplyVencimientosResult,
@@ -14,7 +15,8 @@ import type {
 const UNIDADES_KEY = "unidades_data";
 const GASTOS_KEY = "gastos_data";
 const PAGOS_KEY = "pagos_data";
-const PERIODOS_BLOQUEADOS_KEY = "periodos_bloqueados_data";
+const PERIODOS_BLOQUEADOS_KEY = "periodos_bloqueados_data"; // vencidos: bloquea pagos
+const PERIODOS_CERRADOS_KEY = "periodos_cerrados_data";     // cerrados: bloquea gastos
 
 type PeriodLocks = Record<string, Record<string, { bloqueado: boolean; fecha: string }>>;
 
@@ -29,11 +31,6 @@ function getNextPeriod(periodo: string): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-function isPeriodoVencido(periodo: string, diasGracia = 10): boolean {
-  const [y, m] = periodo.split("-").map(Number);
-  const venc = new Date(y, (m || 1), diasGracia); // mes siguiente, día gracia
-  return new Date() >= venc;
-}
 
 async function getLocks(): Promise<PeriodLocks> {
   return (await localforage.getItem<PeriodLocks>(PERIODOS_BLOQUEADOS_KEY)) || {};
@@ -46,6 +43,17 @@ async function setPeriodoBloqueado(consorcioId: string, periodo: string, bloquea
   await localforage.setItem(PERIODOS_BLOQUEADOS_KEY, locks);
 }
 
+async function getCerrados(): Promise<PeriodLocks> {
+  return (await localforage.getItem<PeriodLocks>(PERIODOS_CERRADOS_KEY)) || {};
+}
+
+async function setPeriodoCerrado(consorcioId: string, periodo: string, cerrado = true): Promise<void> {
+  const locks = await getCerrados();
+  locks[consorcioId] = locks[consorcioId] || {};
+  locks[consorcioId][periodo] = { bloqueado: cerrado, fecha: new Date().toISOString() };
+  await localforage.setItem(PERIODOS_CERRADOS_KEY, locks);
+}
+
 export class LocalUnidadService implements IUnidadService {
   async getByConsorcio(consorcioId: string): Promise<Unidad[]> {
     const all = (await localforage.getItem<Unidad[]>(UNIDADES_KEY)) || [];
@@ -54,7 +62,7 @@ export class LocalUnidadService implements IUnidadService {
 
   async create(data: Omit<Unidad, "id">): Promise<void> {
     const all = (await localforage.getItem<Unidad[]>(UNIDADES_KEY)) || [];
-    const newUnidad = { ...data, id: crypto.randomUUID() };
+    const newUnidad = { ...data, id: generateUUID() };
     await localforage.setItem(UNIDADES_KEY, [...all, newUnidad]);
   }
 }
@@ -75,7 +83,7 @@ export class LocalGastoService implements IGastoService {
     const all = (await localforage.getItem<Gasto[]>(GASTOS_KEY)) || [];
     const newGasto: Gasto = {
       ...data,
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       periodo: data.periodo || periodFromDate(data.fecha),
     };
     await localforage.setItem(GASTOS_KEY, [...all, newGasto]);
@@ -122,7 +130,7 @@ export class LocalPagoService implements IPagoService {
     const all = (await localforage.getItem<Pago[]>(PAGOS_KEY)) || [];
     const newPago: Pago = {
       ...data,
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       periodo,
       tipo,
     };
@@ -133,11 +141,6 @@ export class LocalPagoService implements IPagoService {
     const consorcioId = input.consorcioId;
     const periodo = normalizePeriod(input.periodo);
     const tasaMora = input.tasaMora ?? 0;
-    const diasGracia = input.diasGracia ?? 10;
-
-    if (!isPeriodoVencido(periodo, diasGracia)) {
-      throw new Error(`El período ${periodo} aún está en gracia.`);
-    }
 
     if (await this.isPeriodoBloqueado(consorcioId, periodo)) {
       throw new Error(`El período ${periodo} ya fue vencido/aplicado.`);
@@ -150,15 +153,15 @@ export class LocalPagoService implements IPagoService {
     ]);
 
     const unidadesConsorcio = unidades.filter((u) => u.consorcio_id === consorcioId);
-    
+
     // Buscar el último periodo bloqueado para calcular el saldo desde entonces
     const locks = await getLocks();
     const locksConsorcio = locks[consorcioId] || {};
     const bloqueadosAnteriores = Object.keys(locksConsorcio)
       .filter((p) => p < periodo && locksConsorcio[p].bloqueado)
       .sort();
-    const lastBlocked = bloqueadosAnteriores.length > 0 
-      ? bloqueadosAnteriores[bloqueadosAnteriores.length - 1] 
+    const lastBlocked = bloqueadosAnteriores.length > 0
+      ? bloqueadosAnteriores[bloqueadosAnteriores.length - 1]
       : "0000-00";
 
     // Obtener gastos y pagos en el rango (lastBlocked, periodo]
@@ -209,7 +212,7 @@ export class LocalPagoService implements IPagoService {
       deudasTrasladadas = round2(deudasTrasladadas + deuda);
 
       nuevosGastos.push({
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         consorcio_id: consorcioId,
         descripcion: `Deuda trasladada del período ${periodo}`,
         monto: deuda,
@@ -223,7 +226,7 @@ export class LocalPagoService implements IPagoService {
       if (mora > 0) {
         moraGenerada = round2(moraGenerada + mora);
         nuevosGastos.push({
-          id: crypto.randomUUID(),
+          id: generateUUID(),
           consorcio_id: consorcioId,
           descripcion: `Mora por vencimiento del período ${periodo} (${tasaMora}%)`,
           monto: mora,
@@ -235,7 +238,7 @@ export class LocalPagoService implements IPagoService {
       }
 
       pagosFicticios.push({
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         consorcio_id: consorcioId,
         unidad_id: u.id,
         monto: 0,
@@ -270,16 +273,16 @@ export class LocalPagoService implements IPagoService {
 
 export class LocalMesCerradoService implements IMesCerradoService {
   async isCerrado(consorcioId: string, periodo: string): Promise<boolean> {
-    const locks = await getLocks();
+    const locks = await getCerrados();
     const p = normalizePeriod(periodo);
     return !!locks[consorcioId]?.[p]?.bloqueado;
   }
 
   async cerrar(consorcioId: string, periodo: string): Promise<void> {
-    await setPeriodoBloqueado(consorcioId, normalizePeriod(periodo), true);
+    await setPeriodoCerrado(consorcioId, normalizePeriod(periodo), true);
   }
 
   async abrir(consorcioId: string, periodo: string): Promise<void> {
-    await setPeriodoBloqueado(consorcioId, normalizePeriod(periodo), false);
+    await setPeriodoCerrado(consorcioId, normalizePeriod(periodo), false);
   }
 }
