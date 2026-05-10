@@ -36,22 +36,25 @@ export default function ConsorcioDetailPage() {
   
   const [selectedPeriod, setSelectedPeriod] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [isMesCerrado, setIsMesCerrado] = useState(false);
+  const [lastBlockedPeriod, setLastBlockedPeriod] = useState("0000-00");
 
   const loadData = async () => {
     if (!id) return;
     try {
-      const [c, u, g, p, cerrado] = await Promise.all([
+      const [c, u, g, p, cerrado, lastBlocked] = await Promise.all([
         consorcioApi.getById(id),
         unidadApi.getByConsorcio(id),
-        gastoApi.getByConsorcio(id), // Fetch all
-        pagoApi.getByConsorcio(id),   // Fetch all
-        mesCerradoApi.isCerrado(id, selectedPeriod)
+        gastoApi.getByConsorcio(id),
+        pagoApi.getByConsorcio(id),
+        mesCerradoApi.isCerrado(id, selectedPeriod),
+        pagoApi.getLastPeriodoBloqueado(id, selectedPeriod),
       ]);
       setConsorcio(c);
       setUnidades(u);
       setAllGastos(g);
       setAllPagos(p);
       setIsMesCerrado(cerrado);
+      setLastBlockedPeriod(lastBlocked);
     } catch (error) {
       console.error("Error loading details:", error);
     } finally {
@@ -93,17 +96,24 @@ export default function ConsorcioDetailPage() {
       const partCommon = round2(totalCommon * coef);
       const partExtra = round2(totalExtra * coef);
       
-      // Gastos particulares del periodo (excluyendo deudas trasladadas para no duplicar)
+      // Gastos particulares del periodo actual (incluyendo deudas trasladadas)
       const partParticular = round2(gastos
-        .filter(g => g.tipo === 'particular' && g.unidad_id === u.id && !g.descripcion.startsWith("Deuda trasladada"))
+        .filter(g => g.tipo === 'particular' && g.unidad_id === u.id)
         .reduce((acc, g) => acc + g.monto, 0));
       
-      // Saldo anterior histórico (todas las deudas previas menos todos los pagos previos)
+      // Saldo anterior: solo considera el rango abierto posterior al ultimo vencimiento.
+      // Los periodos anteriores al ultimo vencido ya tienen sus deudas capturadas
+      // como "Deuda trasladada" en el periodo siguiente, evitando doble conteo.
       const historicalGastos = allGastos.filter(g => {
         const p = g.periodo || g.fecha.slice(0, 7);
-        return g.unidad_id === u.id && p < selectedPeriod && !g.descripcion.startsWith("Deuda trasladada");
+        return g.unidad_id === u.id && p > lastBlockedPeriod && p < selectedPeriod;
       });
-      const historicalPagos = allPagos.filter(p => p.unidad_id === u.id && p.periodo < selectedPeriod && p.tipo !== "transferencia_deuda");
+      const historicalPagos = allPagos.filter(p =>
+        p.unidad_id === u.id &&
+        p.periodo > lastBlockedPeriod &&
+        p.periodo < selectedPeriod &&
+        p.tipo !== "transferencia_deuda"
+      );
       
       const saldoAnterior = round2(historicalGastos.reduce((acc, g) => acc + g.monto, 0) - historicalPagos.reduce((acc, p) => acc + p.monto, 0));
 
@@ -126,7 +136,7 @@ export default function ConsorcioDetailPage() {
         saldo: round2(subtotalUnidad - totalPagado)
       };
     });
-  }, [unidades, totalCommon, totalExtra, totalSuperficie, gastos, pagos, allGastos, allPagos, selectedPeriod]);
+  }, [unidades, totalCommon, totalExtra, totalSuperficie, gastos, pagos, allGastos, allPagos, selectedPeriod, lastBlockedPeriod]);
 
   const totalSaldoAnterior = useMemo(() => settlementData.reduce((acc, row) => acc + row.saldoAnterior, 0), [settlementData]);
   const totalALiquidarGlobal = totalALiquidar + totalSaldoAnterior;

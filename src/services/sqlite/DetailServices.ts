@@ -116,6 +116,15 @@ export class LocalPagoService implements IPagoService {
     return !!locks[consorcioId]?.[p]?.bloqueado;
   }
 
+  async getLastPeriodoBloqueado(consorcioId: string, beforePeriodo: string): Promise<string> {
+    const locks = await getLocks();
+    const locksConsorcio = locks[consorcioId] || {};
+    const bloqueados = Object.keys(locksConsorcio)
+      .filter(p => p < beforePeriodo && locksConsorcio[p].bloqueado)
+      .sort();
+    return bloqueados.length > 0 ? bloqueados[bloqueados.length - 1] : "0000-00";
+  }
+
   async create(data: Omit<Pago, "id">): Promise<void> {
     const periodo = normalizePeriod(data.periodo);
     const consorcioId = data.consorcio_id;
