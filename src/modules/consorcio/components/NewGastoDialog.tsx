@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import { gastoApi } from "@/services/api";
 import { toast } from "sonner";
 import type { Unidad } from "@/services/interfaces/IDetailServices";
+import { getAppTodayIso } from "@/lib/appDate";
 
 const formSchema = z.object({
   descripcion: z.string().min(3, "La descripción es requerida"),
@@ -33,7 +34,7 @@ export default function NewGastoDialog({ consorcioId, unidades, open, onOpenChan
     defaultValues: {
       descripcion: "",
       monto: 0,
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: getAppTodayIso(),
       tipo: "comun",
       unidad_id: "",
     }

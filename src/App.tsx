@@ -3,6 +3,7 @@ import { Toaster } from "@/components/ui/sonner";
 import DashboardPage from "./modules/dashboard/DashboardPage";
 import ConsorcioDetailPage from "./modules/consorcio/ConsorcioDetailPage";
 import { Suspense } from "react";
+import DateTestingPanel from "@/components/shared/DateTestingPanel";
 
 function App() {
   const basename =
@@ -17,6 +18,7 @@ function App() {
             <Route path="/consorcio/:id" element={<ConsorcioDetailPage />} />
           </Routes>
         </Suspense>
+        <DateTestingPanel />
         <Toaster />
       </div>
     </Router>

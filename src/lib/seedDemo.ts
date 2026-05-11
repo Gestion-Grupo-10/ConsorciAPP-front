@@ -14,16 +14,22 @@ export async function seedDemoData() {
     return;
   }
 
-  const consorcio = await consorcioApi.create({
+  await consorcioApi.create({
     nombre: "Consorcio Demo",
     direccion: "Calle Falsa 123",
     comision_admin: 10,
     tasa_mora: 10,
   });
 
+  const consorciosActualizados = (await consorcioApi.getAll()) as ConsorcioLite[];
+  const consorcio = consorciosActualizados.find((c) => c.nombre === "Consorcio Demo");
+  if (!consorcio) {
+    throw new Error("No se pudo recuperar el consorcio demo luego de crearlo");
+  }
+
   const cId = consorcio.id;
 
-  const unidad1 = await unidadApi.create({
+  await unidadApi.create({
     consorcio_id: cId,
     nro_piso: "1A",
     propietario: "Juan Pérez",
@@ -32,7 +38,7 @@ export async function seedDemoData() {
     telefono: "111111",
   });
 
-  const unidad2 = await unidadApi.create({
+  await unidadApi.create({
     consorcio_id: cId,
     nro_piso: "2B",
     propietario: "Ana Gómez",
@@ -40,6 +46,12 @@ export async function seedDemoData() {
     email: "ana@test.com",
     telefono: "222222",
   });
+
+  const unidades = await unidadApi.getByConsorcio(cId);
+  const unidad1 = unidades.find((u) => u.nro_piso === "1A");
+  if (!unidad1) {
+    throw new Error("No se pudo recuperar la unidad 1A luego de crearla");
+  }
 
   await gastoApi.create({
     consorcio_id: cId,
