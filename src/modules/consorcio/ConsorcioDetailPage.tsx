@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { consorcioApi, unidadApi, gastoApi, pagoApi, mesCerradoApi } from "@/services/api";
 import type { Consorcio } from "@/services/interfaces/IConsorcioService";
@@ -7,18 +7,90 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Users, Receipt, CreditCard, PieChart, Plus, Trash2, Calendar, LockIcon, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Users, Receipt, CreditCard, PieChart, Plus, Trash2, Calendar, LockIcon, CheckCircle2, Pencil } from "lucide-react";
 import Header from "@/components/shared/Header";
 import NewUnidadDialog from "./components/NewUnidadDialog";
 import NewGastoDialog from "./components/NewGastoDialog";
 import NewPagoDialog from "./components/NewPagoDialog";
 import CerrarMesDialog from "./components/CerrarMesDialog";
 import ImportUnidadesFuncionales from "./components/ImportUnidadesFuncionales";
+import EditMoraRateDialog from "./components/EditMoraRateDialog";
 import { toast } from "sonner";
+import type { MoraRateEntry } from "@/services/interfaces/IConsorcioService";
+import { getAppTodayIso } from "@/lib/appDate";
 
 const fmt = (n: number) =>
   n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+type MoraSegment = {
+  startDay: number;
+  endDay: number;
+  tasa_mora: number;
+};
+
+const fmtRate = (n: number) => n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const parseDateKey = (value: string) => {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, (month || 1) - 1, day || 1));
+};
+
+const formatDateKey = (value: Date) => value.toISOString().slice(0, 10);
+
+const periodBounds = (period: string) => {
+  const [year, month] = period.split("-").map(Number);
+  const start = new Date(Date.UTC(year, (month || 1) - 1, 1));
+  const end = new Date(Date.UTC(year, month || 1, 0));
+  return { start, end };
+};
+
+const latestRateForDate = (rates: MoraRateEntry[] | undefined, dateKey: string, fallback: number) => {
+  const sorted = [...(rates || [])].sort((a, b) => a.effective_from.localeCompare(b.effective_from));
+  const current = sorted.filter((entry) => entry.effective_from <= dateKey).at(-1);
+  return current?.tasa_mora ?? fallback;
+};
+
+const buildMoraSegments = (rates: MoraRateEntry[] | undefined, period: string, fallback: number): MoraSegment[] => {
+  const { start, end } = periodBounds(period);
+  const sorted = [...(rates || [])].sort((a, b) => a.effective_from.localeCompare(b.effective_from));
+  const boundaries = [start];
+
+  for (const entry of sorted) {
+    const effective = parseDateKey(entry.effective_from);
+    if (effective > start && effective <= end) {
+      boundaries.push(effective);
+    }
+  }
+
+  boundaries.sort((a, b) => a.getTime() - b.getTime());
+
+  const segments: MoraSegment[] = [];
+  for (let index = 0; index < boundaries.length; index += 1) {
+    const segmentStart = boundaries[index];
+    const nextBoundary = boundaries[index + 1] ?? new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate() + 1));
+    const segmentEnd = new Date(nextBoundary);
+    segmentEnd.setUTCDate(segmentEnd.getUTCDate() - 1);
+
+    if (segmentStart > end) continue;
+
+    const rate = latestRateForDate(sorted, formatDateKey(segmentStart), fallback);
+    const startDay = segmentStart.getUTCDate();
+    const endDay = Math.min(segmentEnd.getUTCDate(), end.getUTCDate());
+
+    if (segments.length > 0) {
+      const last = segments[segments.length - 1];
+      if (last.tasa_mora === rate && last.endDay + 1 === startDay) {
+        last.endDay = endDay;
+        continue;
+      }
+    }
+
+    segments.push({ startDay, endDay, tasa_mora: rate });
+  }
+
+  return segments.length > 0 ? segments : [{ startDay: 1, endDay: end.getUTCDate(), tasa_mora: fallback }];
+};
 
 export default function ConsorcioDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -33,12 +105,13 @@ export default function ConsorcioDetailPage() {
   const [isGastoDialogOpen, setIsGastoDialogOpen] = useState(false);
   const [isPagoDialogOpen, setIsPagoDialogOpen] = useState(false);
   const [isCerrarMesDialogOpen, setIsCerrarMesDialogOpen] = useState(false);
+  const [isEditMoraDialogOpen, setIsEditMoraDialogOpen] = useState(false);
   
-  const [selectedPeriod, setSelectedPeriod] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+  const [selectedPeriod, setSelectedPeriod] = useState(getAppTodayIso().slice(0, 7)); // YYYY-MM
   const [isMesCerrado, setIsMesCerrado] = useState(false);
   const [lastBlockedPeriod, setLastBlockedPeriod] = useState("0000-00");
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!id) return;
     try {
       const [c, u, g, p, cerrado, lastBlocked] = await Promise.all([
@@ -60,11 +133,22 @@ export default function ConsorcioDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, selectedPeriod]);
 
   useEffect(() => {
-    loadData();
-  }, [id, selectedPeriod]);
+    queueMicrotask(() => {
+      void loadData();
+    });
+  }, [loadData]);
+
+  useEffect(() => {
+    const syncSelectedPeriod = () => {
+      setSelectedPeriod(getAppTodayIso().slice(0, 7));
+    };
+
+    window.addEventListener("consorciapp:app-date-change", syncSelectedPeriod);
+    return () => window.removeEventListener("consorciapp:app-date-change", syncSelectedPeriod);
+  }, []);
 
   const totalSuperficie = useMemo(() => unidades.reduce((acc, u) => acc + u.superficie, 0), [unidades]);
   
@@ -88,6 +172,15 @@ export default function ConsorcioDetailPage() {
   const totalALiquidar = baseGastos + totalComision;
 
   const totalRecaudado = useMemo(() => pagos.reduce((acc, p) => acc + p.monto, 0), [pagos]);
+  const currentMoraRate = useMemo(() => {
+    if (!consorcio) return 0;
+    return latestRateForDate(consorcio.mora_rates, getAppTodayIso(), consorcio.tasa_mora ?? 0);
+  }, [consorcio]);
+
+  const selectedPeriodMoraSegments = useMemo(() => {
+    if (!consorcio) return [];
+    return buildMoraSegments(consorcio.mora_rates, selectedPeriod, consorcio.tasa_mora ?? 0);
+  }, [consorcio, selectedPeriod]);
 
   // Settlement Calculation
   const settlementData = useMemo(() => {
@@ -136,7 +229,7 @@ export default function ConsorcioDetailPage() {
         saldo: round2(subtotalUnidad - totalPagado)
       };
     });
-  }, [unidades, totalCommon, totalExtra, totalSuperficie, gastos, pagos, allGastos, allPagos, selectedPeriod, lastBlockedPeriod]);
+  }, [unidades, totalCommon, totalExtra, totalSuperficie, gastos, pagos, allGastos, allPagos, selectedPeriod, lastBlockedPeriod, totalComision]);
 
   const totalSaldoAnterior = useMemo(() => settlementData.reduce((acc, row) => acc + row.saldoAnterior, 0), [settlementData]);
   const totalALiquidarGlobal = totalALiquidar + totalSaldoAnterior;
@@ -161,19 +254,20 @@ export default function ConsorcioDetailPage() {
   const handleAplicarVencimientos = async () => {
     if (!id || !consorcio) return;
     try {
+      const tasaVigente = await consorcioApi.getMoraRateForPeriod(id, selectedPeriod);
       const result = await pagoApi.applyVencimientos({
         consorcioId: id,
         periodo: selectedPeriod,
-        tasaMora: consorcio.tasa_mora ?? 0,
+        tasaMora: tasaVigente,
       });
 
       toast.success(
-        `Vencimientos aplicados. Deuda: $${result.deudasTrasladadas.toFixed(2)} | Mora: $${result.moraGenerada.toFixed(2)}`
+        `Vencimientos aplicados con tasa ${tasaVigente}%. Deuda: $${result.deudasTrasladadas.toFixed(2)} | Mora: $${result.moraGenerada.toFixed(2)}`
       );
       setPeriodoBloqueado(true);
       await loadData();
-    } catch (e: any) {
-      toast.error(e?.message || "No se pudieron aplicar vencimientos");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudieron aplicar vencimientos");
     }
   };
 
@@ -204,6 +298,24 @@ export default function ConsorcioDetailPage() {
                 onChange={(e) => setSelectedPeriod(e.target.value)}
                 className="text-sm font-semibold bg-slate-100 border-none rounded px-2 py-1 focus:ring-0"
               />
+              <div className="mt-2 max-w-[360px] text-right space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  Mora en el período seleccionado
+                </p>
+                <div className="space-y-0.5 text-xs text-slate-600">
+                  {selectedPeriodMoraSegments.map((segment) => (
+                    <p key={`${segment.startDay}-${segment.endDay}-${segment.tasa_mora}`}>
+                      Mora en los días {String(segment.startDay).padStart(2, "0")}-{String(segment.endDay).padStart(2, "0")} del período: {fmtRate(segment.tasa_mora)}%
+                    </p>
+                  ))}
+                </div>
+                <div className="flex items-center justify-end gap-2">
+                  <span className="text-xs text-slate-500">Mora actual: {fmtRate(currentMoraRate)}%</span>
+                  <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setIsEditMoraDialogOpen(true)}>
+                    <Pencil className="mr-1 h-3 w-3" /> Editar
+                  </Button>
+                </div>
+              </div>
             </div>
 
             {/* Boton contextual segun estado del periodo */}
@@ -493,6 +605,12 @@ export default function ConsorcioDetailPage() {
               isCerrado={isMesCerrado}
               open={isCerrarMesDialogOpen}
               onOpenChange={setIsCerrarMesDialogOpen}
+              onSuccess={loadData}
+            />
+            <EditMoraRateDialog
+              consorcio={consorcio}
+              open={isEditMoraDialogOpen}
+              onOpenChange={setIsEditMoraDialogOpen}
               onSuccess={loadData}
             />
           </>

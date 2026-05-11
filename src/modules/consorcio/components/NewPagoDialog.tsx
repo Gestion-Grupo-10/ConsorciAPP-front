@@ -9,6 +9,7 @@ import { pagoApi } from "@/services/api";
 import { toast } from "sonner";
 import type { Unidad } from "@/services/interfaces/IDetailServices";
 import { useEffect, useState } from "react";
+import { getAppTodayIso } from "@/lib/appDate";
 
 const formSchema = z.object({
   unidad_id: z.string().min(1, "La unidad es requerida"),
@@ -29,7 +30,7 @@ interface NewPagoDialogProps {
 }
 
 export default function NewPagoDialog({ consorcioId, unidades, open, onOpenChange, onSuccess }: NewPagoDialogProps) {
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const currentMonth = getAppTodayIso().slice(0, 7);
 
   const {
     control,
@@ -42,7 +43,7 @@ export default function NewPagoDialog({ consorcioId, unidades, open, onOpenChang
     defaultValues: {
       unidad_id: "",
       monto: 0,
-      fecha: new Date().toISOString().slice(0, 10),
+      fecha: getAppTodayIso(),
       periodo: currentMonth,
     },
   });

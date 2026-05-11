@@ -1,5 +1,6 @@
 import localforage from "localforage";
 import { generateUUID } from "@/lib/utils";
+import { getAppTodayIso } from "@/lib/appDate";
 import type {
   ApplyVencimientosInput,
   ApplyVencimientosResult,
@@ -200,7 +201,7 @@ export class LocalPagoService implements IPagoService {
     }
 
     const periodoSiguiente = getNextPeriod(periodo);
-    const fechaHoy = new Date().toISOString().slice(0, 10);
+    const fechaHoy = getAppTodayIso();
     const nuevosGastos: Gasto[] = [];
     const pagosFicticios: Pago[] = [];
 
