@@ -296,6 +296,7 @@ export default function ConsorcioDetailPage() {
                 type="month"
                 value={selectedPeriod}
                 onChange={(e) => setSelectedPeriod(e.target.value)}
+                max={getAppTodayIso().slice(0, 7)}
                 className="text-sm font-semibold bg-slate-100 border-none rounded px-2 py-1 focus:ring-0"
               />
               <div className="mt-2 max-w-[360px] text-right space-y-1">
