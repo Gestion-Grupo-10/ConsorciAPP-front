@@ -66,6 +66,7 @@ export interface IGastoService {
 export interface IPagoService {
   getByConsorcio(consorcioId: string, periodo?: string): Promise<Pago[]>;
   create(data: Omit<Pago, "id">): Promise<void>;
+  update(id: string, data: Omit<Pago, "id">): Promise<void>;
   delete(id: string): Promise<void>;
 
   isPeriodoBloqueado(consorcioId: string, periodo: string): Promise<boolean>;
