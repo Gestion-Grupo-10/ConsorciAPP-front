@@ -566,8 +566,8 @@ export default function ConsorcioDetailPage() {
                     <TableHead className="text-right">Coef %</TableHead>
                     <TableHead className="text-right">Saldo Ant.</TableHead>
                     <TableHead className="text-right">G. Comunes</TableHead>
-                    <TableHead className="text-right">G. Extra.</TableHead>
-                    <TableHead className="text-right">G. Part.</TableHead>
+                    <TableHead className="text-right">G. Extraordinarios</TableHead>
+                    <TableHead className="text-right">G. Particulares</TableHead>
                     <TableHead className="text-right font-bold">Total</TableHead>
                     <TableHead className="text-right">Pagado</TableHead>
                     <TableHead className="text-right">Saldo</TableHead>
