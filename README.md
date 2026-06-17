@@ -1,3 +1,5 @@
+[![Deploy to GitHub Pages](https://github.com/Gestion-Grupo-10/ConsorciAPP-front/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/Gestion-Grupo-10/ConsorciAPP-front/actions/workflows/deploy-pages.yml)
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
