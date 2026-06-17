@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { pagoApi } from "@/services/api";
 import { toast } from "sonner";
-import type { Unidad } from "@/services/interfaces/IDetailServices";
+import type { Pago, Unidad } from "@/services/interfaces/IDetailServices";
 import { useEffect, useState } from "react";
 import { getAppTodayIso } from "@/lib/appDate";
 
@@ -24,13 +24,15 @@ type FormValues = z.output<typeof formSchema>;
 interface NewPagoDialogProps {
   consorcioId: string;
   unidades: Unidad[];
+  pago?: Pago | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
 }
 
-export default function NewPagoDialog({ consorcioId, unidades, open, onOpenChange, onSuccess }: NewPagoDialogProps) {
+export default function NewPagoDialog({ consorcioId, unidades, pago, open, onOpenChange, onSuccess }: NewPagoDialogProps) {
   const currentMonth = getAppTodayIso().slice(0, 7);
+  const isEditing = !!pago;
 
   const {
     control,
@@ -50,6 +52,17 @@ export default function NewPagoDialog({ consorcioId, unidades, open, onOpenChang
 
   const [periodoBloqueado, setPeriodoBloqueado] = useState(false);
   const selectedPeriodo = useWatch({ control, name: "periodo" });
+
+  useEffect(() => {
+    if (!open) return;
+
+    reset({
+      unidad_id: pago?.unidad_id ?? "",
+      monto: pago?.monto ?? 0,
+      fecha: pago?.fecha ?? getAppTodayIso(),
+      periodo: pago?.periodo ?? currentMonth,
+    });
+  }, [open, pago, reset, currentMonth]);
 
   useEffect(() => {
     let active = true;
@@ -72,13 +85,21 @@ export default function NewPagoDialog({ consorcioId, unidades, open, onOpenChang
       return;
     }
 
-    await pagoApi.create({
-      ...values,
-      consorcio_id: consorcioId,
-      tipo: "normal",
-    });
+    if (pago) {
+      await pagoApi.update(pago.id, {
+        ...pago,
+        ...values,
+        consorcio_id: consorcioId,
+      });
+    } else {
+      await pagoApi.create({
+        ...values,
+        consorcio_id: consorcioId,
+        tipo: "normal",
+      });
+    }
 
-    toast.success("Pago registrado correctamente");
+    toast.success(isEditing ? "Pago actualizado correctamente" : "Pago registrado correctamente");
     reset();
     onSuccess();
     onOpenChange(false);
@@ -88,7 +109,7 @@ export default function NewPagoDialog({ consorcioId, unidades, open, onOpenChang
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Registrar Pago</DialogTitle>
+          <DialogTitle>{isEditing ? "Editar Pago" : "Registrar Pago"}</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -151,7 +172,7 @@ export default function NewPagoDialog({ consorcioId, unidades, open, onOpenChang
               Cancelar
             </Button>
             <Button type="submit" disabled={isSubmitting || periodoBloqueado}>
-              {isSubmitting ? "Guardando..." : "Registrar Pago"}
+              {isSubmitting ? "Guardando..." : isEditing ? "Guardar cambios" : "Registrar Pago"}
             </Button>
           </DialogFooter>
         </form>

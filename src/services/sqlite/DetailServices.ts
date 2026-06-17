@@ -147,6 +147,33 @@ export class LocalPagoService implements IPagoService {
     await localforage.setItem(PAGOS_KEY, [...all, newPago]);
   }
 
+  async update(id: string, data: Omit<Pago, "id">): Promise<void> {
+    const periodo = normalizePeriod(data.periodo);
+    const consorcioId = data.consorcio_id;
+    const blocked = await this.isPeriodoBloqueado(consorcioId, periodo);
+    const tipo = data.tipo ?? "normal";
+
+    if (blocked && tipo === "normal") {
+      throw new Error(`El período ${periodo} está vencido y bloqueado para modificar pagos.`);
+    }
+
+    const all = (await localforage.getItem<Pago[]>(PAGOS_KEY)) || [];
+    await localforage.setItem(
+      PAGOS_KEY,
+      all.map((p) =>
+        p.id === id
+          ? {
+              ...p,
+              ...data,
+              id,
+              periodo,
+              tipo,
+            }
+          : p
+      )
+    );
+  }
+
   async applyVencimientos(input: ApplyVencimientosInput): Promise<ApplyVencimientosResult> {
     const consorcioId = input.consorcioId;
     const periodo = normalizePeriod(input.periodo);

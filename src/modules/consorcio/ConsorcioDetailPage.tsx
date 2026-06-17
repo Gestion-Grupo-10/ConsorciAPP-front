@@ -104,6 +104,7 @@ export default function ConsorcioDetailPage() {
   const [isUnidadDialogOpen, setIsUnidadDialogOpen] = useState(false);
   const [isGastoDialogOpen, setIsGastoDialogOpen] = useState(false);
   const [isPagoDialogOpen, setIsPagoDialogOpen] = useState(false);
+  const [pagoToEdit, setPagoToEdit] = useState<Pago | null>(null);
   const [isCerrarMesDialogOpen, setIsCerrarMesDialogOpen] = useState(false);
   const [isEditMoraDialogOpen, setIsEditMoraDialogOpen] = useState(false);
   
@@ -238,6 +239,26 @@ export default function ConsorcioDetailPage() {
     if (!confirm("¿Está seguro de eliminar este gasto?")) return;
     await gastoApi.delete(gId);
     toast.success("Gasto eliminado");
+    loadData();
+  };
+
+  const handleOpenNewPago = () => {
+    setPagoToEdit(null);
+    setIsPagoDialogOpen(true);
+  };
+
+  const handleEditPago = (pago: Pago) => {
+    if (isMesCerrado) return;
+    setPagoToEdit(pago);
+    setIsPagoDialogOpen(true);
+  };
+
+  const handleDeletePago = async (pago: Pago) => {
+    if (isMesCerrado) return;
+    if (!confirm("¿Está seguro de eliminar este pago?")) return;
+
+    await pagoApi.delete(pago.id);
+    toast.success("Pago eliminado");
     loadData();
   };
 
@@ -498,10 +519,16 @@ export default function ConsorcioDetailPage() {
           <TabsContent value="pagos" className="bg-white border rounded-xl p-6 shadow-sm min-h-[400px]">
              <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-semibold">Pagos de {selectedPeriod}</h3>
-                <Button size="sm" onClick={() => setIsPagoDialogOpen(true)}>
+                <Button size="sm" onClick={handleOpenNewPago}>
                   <Plus className="mr-2 h-4 w-4" /> Registrar Pago
                 </Button>
             </div>
+            {isMesCerrado && (
+              <div className="flex items-center gap-2 mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                <LockIcon className="size-4 shrink-0" />
+                Este mes está cerrado. No se pueden editar ni eliminar pagos.
+              </div>
+            )}
             {pagos.length === 0 ? (
                 <div className="text-center py-20 text-slate-400 border rounded-lg border-dashed">No hay pagos registrados</div>
             ) : (
@@ -512,6 +539,7 @@ export default function ConsorcioDetailPage() {
                     <TableHead>Unidad</TableHead>
                     <TableHead>Propietario</TableHead>
                     <TableHead className="text-right">Monto</TableHead>
+                    <TableHead className="text-right">Acción</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -523,6 +551,26 @@ export default function ConsorcioDetailPage() {
                         <TableCell className="font-bold">{u?.nro_piso}</TableCell>
                         <TableCell>{u?.propietario}</TableCell>
                         <TableCell className="text-right text-green-600 font-bold">${fmt(p.monto)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              disabled={isMesCerrado}
+                              onClick={() => handleEditPago(p)}
+                            >
+                              <Pencil className="h-4 w-4 text-slate-500" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              disabled={isMesCerrado}
+                              onClick={() => handleDeletePago(p)}
+                            >
+                              <Trash2 className="h-4 w-4 text-red-400" />
+                            </Button>
+                          </div>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -599,7 +647,17 @@ export default function ConsorcioDetailPage() {
           <>
             <NewUnidadDialog consorcioId={id} open={isUnidadDialogOpen} onOpenChange={setIsUnidadDialogOpen} onSuccess={loadData} />
             <NewGastoDialog consorcioId={id} unidades={unidades} open={isGastoDialogOpen} onOpenChange={setIsGastoDialogOpen} onSuccess={loadData} />
-            <NewPagoDialog consorcioId={id} unidades={unidades} open={isPagoDialogOpen} onOpenChange={setIsPagoDialogOpen} onSuccess={loadData} />
+            <NewPagoDialog
+              consorcioId={id}
+              unidades={unidades}
+              pago={pagoToEdit}
+              open={isPagoDialogOpen}
+              onOpenChange={(open) => {
+                setIsPagoDialogOpen(open);
+                if (!open) setPagoToEdit(null);
+              }}
+              onSuccess={loadData}
+            />
             <CerrarMesDialog
               consorcioId={id}
               periodo={selectedPeriod}
