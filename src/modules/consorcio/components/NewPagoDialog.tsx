@@ -10,6 +10,10 @@ import { toast } from "sonner";
 import type { Pago, Unidad } from "@/services/interfaces/IDetailServices";
 import { useEffect, useState } from "react";
 import { getAppTodayIso } from "@/lib/appDate";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { MonthPicker } from "@/components/ui/calendar";
+import { format } from "date-fns";
+import { Calendar } from "lucide-react";
 
 const formSchema = z.object({
   unidad_id: z.string().min(1, "La unidad es requerida"),
@@ -159,7 +163,33 @@ export default function NewPagoDialog({ consorcioId, unidades, pago, open, onOpe
 
           <div className="space-y-2">
             <label className="text-sm font-medium">Periodo (Mes a Liquidar)</label>
-            <Input type="month" {...register("periodo")} />
+            <Controller
+              name="periodo"
+              control={control}
+              render={({ field }) => (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal bg-white">
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {field.value || "Seleccionar periodo"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <MonthPicker
+                      currentDate={(() => {
+                        const [y, m] = (field.value || getAppTodayIso().slice(0, 7)).split("-").map(Number);
+                        return new Date(y, m - 1, 1);
+                      })()}
+                      maxDate={(() => {
+                        const [y, m] = getAppTodayIso().slice(0, 7).split("-").map(Number);
+                        return new Date(y, m - 1, 1);
+                      })()}
+                      onChange={(date) => field.onChange(format(date, "yyyy-MM"))}
+                    />
+                  </PopoverContent>
+                </Popover>
+              )}
+            />
             {errors.periodo && <p className="text-xs text-red-500">{errors.periodo.message}</p>}
           </div>
 
