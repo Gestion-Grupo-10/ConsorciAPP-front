@@ -19,6 +19,9 @@ import { toast } from "sonner";
 import { utils, writeFile } from 'xlsx';
 import type { MoraRateEntry } from "@/services/interfaces/IConsorcioService";
 import { getAppTodayIso } from "@/lib/appDate";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { MonthPicker } from "@/components/ui/calendar";
+import { format } from "date-fns";
 
 const fmt = (n: number) =>
   n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -343,13 +346,29 @@ export default function ConsorcioDetailPage() {
             <div className="flex flex-col items-end">
               <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Periodo</p>
               <div className="flex items-center gap-2">
-                <input
-                  type="month"
-                  value={selectedPeriod}
-                  onChange={(e) => setSelectedPeriod(e.target.value)}
-                  max={getAppTodayIso().slice(0, 7)}
-                  className="text-sm font-semibold bg-slate-100 border-none rounded px-2 py-1 focus:ring-0 print:hidden"
-                />
+                <div className="print:hidden">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 bg-slate-100 border-none font-semibold">
+                        <Calendar className="mr-2 h-3.5 w-3.5" />
+                        {selectedPeriod}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="end">
+                      <MonthPicker 
+                        currentDate={(() => {
+                          const [y, m] = selectedPeriod.split("-").map(Number);
+                          return new Date(y, m - 1, 1);
+                        })()}
+                        maxDate={(() => {
+                          const [y, m] = getAppTodayIso().slice(0, 7).split("-").map(Number);
+                          return new Date(y, m - 1, 1);
+                        })()}
+                        onChange={(date) => setSelectedPeriod(format(date, "yyyy-MM"))}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
                 <span className="hidden print:block text-sm font-semibold">
                   {selectedPeriod}
                 </span>
